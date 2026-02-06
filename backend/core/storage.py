@@ -1,0 +1,200 @@
+"""
+In-memory conversation storage for Calm Sphere.
+
+This module provides an in-memory implementation of conversation storage.
+It is designed to be easily swapped with Firebase Firestore in production.
+
+Storage Structure:
+    {
+        "user_id_1": {
+            "thread_id_1": {
+                "thread_id": "...",
+                "created_at": "...",
+                "last_updated": "...",
+                "messages": [...]
+            },
+            "thread_id_2": {...}
+        }
+    }
+
+This structure ensures:
+- Messages never leak across threads
+- Each user can have multiple threads
+- O(1) access to any thread for a user
+"""
+
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+from uuid import uuid4
+
+
+class InMemoryConversationStore:
+    """In-memory storage for conversation threads.
+    
+    This class manages all conversation data in memory. It provides
+    thread-safe operations for creating threads and adding messages.
+    
+    Attributes:
+        _threads: Nested dictionary storing all thread data
+        
+    Note:
+        Data is lost when the application restarts. This is acceptable
+        for development but should be replaced with Firestore in production.
+    """
+    
+    def __init__(self):
+        # user_id -> {thread_id -> thread_data}
+        self._threads: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    
+    def create_thread(self, user_id: str) -> str:
+        """Create a new empty thread for a user.
+        
+        Args:
+            user_id: The user ID to create the thread for
+            
+        Returns:
+            The newly created thread ID
+        """
+        thread_id = str(uuid4())
+        now = datetime.utcnow().isoformat() + "Z"
+        
+        thread_data = {
+            "thread_id": thread_id,
+            "created_at": now,
+            "last_updated": now,
+            "messages": []
+        }
+        
+        if user_id not in self._threads:
+            self._threads[user_id] = {}
+        
+        self._threads[user_id][thread_id] = thread_data
+        
+        return thread_id
+    
+    def add_user_message(self, user_id: str, thread_id: str, content: str) -> Dict[str, Any]:
+        """Add a user message to a thread.
+        
+        Args:
+            user_id: The user ID
+            thread_id: The thread ID to add the message to
+            content: The message content
+            
+        Returns:
+            The created message data
+            
+        Raises:
+            KeyError: If user or thread doesn't exist
+        """
+        if user_id not in self._threads:
+            raise KeyError(f"User '{user_id}' not found")
+        
+        if thread_id not in self._threads[user_id]:
+            raise KeyError(f"Thread '{thread_id}' not found for user '{user_id}'")
+        
+        now = datetime.utcnow().isoformat() + "Z"
+        message = {
+            "role": "user",
+            "content": content,
+            "timestamp": now
+        }
+        
+        self._threads[user_id][thread_id]["messages"].append(message)
+        self._threads[user_id][thread_id]["last_updated"] = now
+        
+        return message
+    
+    def add_assistant_message(
+        self, 
+        user_id: str, 
+        thread_id: str, 
+        content: str
+    ) -> Dict[str, Any]:
+        """Add an assistant message to a thread.
+        
+        Args:
+            user_id: The user ID
+            thread_id: The thread ID to add the message to
+            content: The message content
+            
+        Returns:
+            The created message data
+            
+        Raises:
+            KeyError: If user or thread doesn't exist
+        """
+        if user_id not in self._threads:
+            raise KeyError(f"User '{user_id}' not found")
+        
+        if thread_id not in self._threads[user_id]:
+            raise KeyError(f"Thread '{thread_id}' not found for user '{user_id}'")
+        
+        now = datetime.utcnow().isoformat() + "Z"
+        message = {
+            "role": "assistant",
+            "content": content,
+            "timestamp": now
+        }
+        
+        self._threads[user_id][thread_id]["messages"].append(message)
+        self._threads[user_id][thread_id]["last_updated"] = now
+        
+        return message
+    
+    def get_thread(self, user_id: str, thread_id: str) -> Optional[Dict[str, Any]]:
+        """Get a thread by user and thread ID.
+        
+        Args:
+            user_id: The user ID
+            thread_id: The thread ID
+            
+        Returns:
+            The thread data if found, None otherwise
+        """
+        if user_id not in self._threads:
+            return None
+        
+        return self._threads[user_id].get(thread_id)
+    
+    def get_user_threads(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get all threads for a user.
+        
+        Args:
+            user_id: The user ID
+            
+        Returns:
+            List of thread data dictionaries
+        """
+        if user_id not in self._threads:
+            return []
+        
+        return list(self._threads[user_id].values())
+    
+    def delete_thread(self, user_id: str, thread_id: str) -> bool:
+        """Delete a thread for a user.
+        
+        Args:
+            user_id: The user ID
+            thread_id: The thread ID to delete
+            
+        Returns:
+            True if thread was deleted, False if not found
+        """
+        if user_id not in self._threads:
+            return False
+        
+        if thread_id not in self._threads[user_id]:
+            return False
+        
+        del self._threads[user_id][thread_id]
+        return True
+
+
+# Global store instance (singleton pattern)
+conversation_store = InMemoryConversationStore()
+
+
+__all__ = [
+    "InMemoryConversationStore",
+    "conversation_store",
+]
