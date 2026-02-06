@@ -1,0 +1,358 @@
+# Calm Sphere – Product Requirements Document (PRD)
+
+**Version**: 1.0
+**Status**: Engineering‑ready baseline
+**Audience**: Solo developer / small engineering team
+**Primary Goal**: Build a clean, thread‑based, context‑aware mental health chatbot that is stable, debuggable, and extensible.
+
+---
+
+## 1. Product Summary
+
+**Calm Sphere** is a mental health support chatbot that enables users to hold multiple **independent conversation threads**, each preserving its own context and history. The system prioritizes:
+
+* Clear separation of frontend, backend, and AI layers
+* Deterministic data flow (no hidden state)
+* Safe, non‑diagnostic conversational behavior
+* Easy migration and extension in the future
+
+The product is **not** intended to replace therapy or provide medical advice.
+
+---
+
+## 2. Goals & Non‑Goals
+
+### 2.1 Goals
+
+* Thread‑based conversations per user
+* Context retention limited to the active thread
+* Persistent storage of messages and threads
+* Deterministic, debuggable API behavior
+* Clean local → production deployment path
+
+### 2.2 Non‑Goals (Out of Scope)
+
+* Authentication & authorization (Firebase Auth, OAuth)
+* Crisis escalation / emergency intervention logic
+* Real‑time streaming responses
+* Voice or audio input/output
+* Analytics or admin dashboards
+
+---
+
+## 3. User Experience Requirements
+
+### 3.1 Core UX Principles
+
+* Users can start a **new conversation** at any time
+* Users can **resume any previous thread**
+* Each thread is isolated in memory and context
+* UI must always reflect the currently active thread
+
+### 3.2 Required UI Components
+
+* Sidebar listing conversation threads (most recent first)
+* Main chat window for active thread
+* Message input box
+* Clear visual distinction between user and assistant messages
+
+---
+
+## 4. System Architecture
+
+```
+Browser (Next.js)
+     ↓ REST API
+FastAPI Backend (Python)
+     ↓
+Hugging Face Inference API
+     ↓
+Firebase Firestore
+```
+
+### Architectural Rules
+
+* Frontend **never** talks directly to Firestore
+* Frontend **never** talks directly to Hugging Face
+* Backend is the single source of truth
+* All state is persisted (no in‑memory chat state)
+
+---
+
+## 5. Technology Stack
+
+### 5.1 Frontend
+
+* Framework: Next.js (App Router)
+* Language: TypeScript
+* Styling: Tailwind CSS
+* API Access: Fetch / Axios
+* Hosting: Vercel
+
+### 5.2 Backend
+
+* Framework: FastAPI
+* Language: Python 3.10+
+* Server: Uvicorn
+* Hosting: Render or Railway
+
+### 5.3 AI Layer
+
+* Provider: Hugging Face Inference API
+* Default Model: `google/flan-t5-base`
+* Model configurable via environment variable
+
+### 5.4 Database
+
+* Firebase Firestore (cloud‑native NoSQL)
+
+---
+
+## 6. Repository Structure
+
+```
+calm-sphere/
+├── backend/
+│   ├── api/            # Route definitions
+│   │   ├── chat.py
+│   │   ├── threads.py
+│   │   └── health.py
+│   ├── core/           # Business logic
+│   │   ├── firebase_db.py
+│   │   ├── llm.py
+│   │   └── context.py
+│   ├── schemas/        # Pydantic models
+│   │   ├── chat.py
+│   │   └── thread.py
+│   ├── main.py
+│   ├── config.py
+│   └── requirements.txt
+│
+├── frontend/
+│   ├── app/
+│   │   ├── page.tsx
+│   │   ├── thread/[id]/page.tsx
+│   │   └── layout.tsx
+│   ├── components/
+│   │   ├── ChatBox.tsx
+│   │   ├── Message.tsx
+│   │   └── ThreadList.tsx
+│   ├── lib/api.ts
+│   └── package.json
+└── README.md
+```
+
+---
+
+## 7. API Design (FastAPI)
+
+### Base Path
+
+```
+/api
+```
+
+---
+
+### 7.1 Create New Thread
+
+**POST** `/threads`
+
+Request:
+
+```json
+{ "user_id": "string" }
+```
+
+Response:
+
+```json
+{ "thread_id": "string" }
+```
+
+---
+
+### 7.2 List Threads for a User
+
+**GET** `/threads?user_id=string`
+
+Response:
+
+```json
+{
+  "threads": [
+    {
+      "thread_id": "string",
+      "created_at": "timestamp",
+      "last_updated": "timestamp",
+      "preview": "string"
+    }
+  ]
+}
+```
+
+---
+
+### 7.3 Send Message to Thread
+
+**POST** `/chat`
+
+Request:
+
+```json
+{
+  "user_id": "string",
+  "thread_id": "string",
+  "message": "string"
+}
+```
+
+Processing Rules:
+
+1. Validate thread ownership
+2. Fetch last N messages
+3. Build prompt with context
+4. Call LLM
+5. Persist user + assistant messages
+
+Response:
+
+```json
+{ "reply": "string" }
+```
+
+---
+
+### 7.4 Get Thread Messages
+
+**GET** `/threads/{thread_id}`
+
+Response:
+
+```json
+{
+  "messages": [
+    {
+      "role": "user | assistant",
+      "content": "string",
+      "timestamp": "ISO"
+    }
+  ]
+}
+```
+
+---
+
+## 8. Data Model (Firestore)
+
+### users/{user_id}
+
+```json
+{ "created_at": "timestamp" }
+```
+
+### users/{user_id}/threads/{thread_id}
+
+```json
+{
+  "created_at": "timestamp",
+  "last_updated": "timestamp"
+}
+```
+
+### users/{user_id}/threads/{thread_id}/messages/{message_id}
+
+```json
+{
+  "role": "user | assistant",
+  "content": "string",
+  "timestamp": "timestamp",
+  "status": "sent"
+}
+```
+
+---
+
+## 9. Context Management
+
+* Context is **thread‑scoped only**
+* Last 10–15 messages OR token‑limited window
+* Oldest messages are truncated first
+
+Prompt Template:
+
+```
+System: You are a calm, empathetic mental health assistant.
+Conversation:
+User: ...
+Assistant: ...
+User: <current message>
+Assistant:
+```
+
+---
+
+## 10. Error Handling & Observability
+
+### Error Response Format
+
+```json
+{
+  "error": {
+    "code": "STRING_CODE",
+    "message": "Human‑readable",
+    "details": "Local only"
+  }
+}
+```
+
+### Environment Rules
+
+| Environment | Client Message | Stack Trace |
+| ----------- | -------------- | ----------- |
+| Local       | Detailed       | Included    |
+| Production  | Sanitized      | Hidden      |
+
+* Proper HTTP status codes required
+* Sensitive data must never be logged
+
+---
+
+## 11. Environment Variables
+
+### Backend
+
+```
+FIREBASE_KEY_PATH=
+HUGGING_FACE_API_KEY=
+HF_MODEL=
+LOG_LEVEL=
+```
+
+### Frontend
+
+```
+NEXT_PUBLIC_API_BASE_URL=
+```
+
+---
+
+## 12. Constraints & Safety
+
+* No diagnosis or medical advice
+* Supportive, non‑prescriptive language only
+* Clear disclaimer positioning
+
+---
+
+## 13. Future Extensions
+
+* Emotion classification
+* Safety scoring
+* Auth integration
+* Conversation summarization
+* Crisis detection (separate PRD)
+
+---
+
+**This PRD is implementation‑complete and safe to build from without architectural rework.**
