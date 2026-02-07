@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, useEffect, useRef } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { MessageList } from './MessageList';
 import { EmptyChatState } from './EmptyChatState';
 import { ChatInput } from './ChatInput';
@@ -26,8 +27,11 @@ import { useChat } from '@/contexts/ChatContext';
  * - Else: Fix the input to the bottom
  */
 export function ChatWindow() {
-  const { activeThread, addMessage } = useChat();
+  const router = useRouter();
+  const pathname = usePathname();
+  const { activeThread, sendMessage, regenerateLast } = useChat();
   const [isSending, setIsSending] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Get messages from active thread (from context)
@@ -38,22 +42,36 @@ export function ChatWindow() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSendMessage = (content: string) => {
-    if (!activeThread || isSending) return;
+  const handleCopyMessage = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // no-op
+    }
+  };
 
+  const handleSendMessage = async (content: string) => {
+    if (isSending) return;
     setIsSending(true);
-    
-    // Add user message to thread (local state only)
-    // TASK 1: No API calls - addMessage updates React state
-    addMessage(content, 'user');
-    
-    // Add simulated assistant response (local memory only)
-    // In a real app, this would be handled differently
-    // For now, we just add a placeholder response
-    setTimeout(() => {
-      addMessage('This is a simulated response. In production, integrate with your LLM.', 'assistant');
+    const hadThread = Boolean(activeThread?.id);
+    try {
+      const threadId = await sendMessage(content);
+      if (!hadThread && pathname === '/chat') {
+        router.push(`/chat/${threadId}`);
+      }
+    } finally {
       setIsSending(false);
-    }, 500);
+    }
+  };
+
+  const handleRegenerate = async () => {
+    if (isRegenerating || isSending) return;
+    setIsRegenerating(true);
+    try {
+      await regenerateLast();
+    } finally {
+      setIsRegenerating(false);
+    }
   };
 
   // TASK 2: Chat input positioning logic
@@ -61,17 +79,22 @@ export function ChatWindow() {
   const shouldCenterInput = activeThread === null || messages.length === 0;
 
   return (
-    <div className={`flex flex-col h-full ${shouldCenterInput ? 'justify-center' : ''}`}>
+    <div className="relative flex flex-col h-full">
       {/* 
         SCROLLABLE CONTENT AREA
         Only this section is conditional based on message state.
       */}
-      <div className={`${shouldCenterInput ? 'absolute inset-0 flex items-center justify-center' : 'flex-1 overflow-y-auto'}`}>
+      <div className={`${shouldCenterInput ? 'flex-1' : 'flex-1 overflow-y-auto'}`}>
         {messages.length === 0 ? (
-          <EmptyChatState userName="User" />
+          <EmptyChatState />
         ) : (
           <>
-            <MessageList messages={messages} />
+            <MessageList
+              messages={messages}
+              isRegenerating={isRegenerating}
+              onCopyMessage={handleCopyMessage}
+              onRegenerate={handleRegenerate}
+            />
             <div ref={messagesEndRef} />
           </>
         )}
@@ -83,13 +106,17 @@ export function ChatWindow() {
         Users must be able to type at any time regardless of message state.
         Only change POSITION using Tailwind classes.
       */}
-      <div className={`border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-[#343541] ${
-        shouldCenterInput ? 'absolute bottom-0 left-0 right-0' : ''
-      }`}>
+      <div
+        className={`w-full ${
+          shouldCenterInput
+            ? 'absolute left-0 right-0 top-1/2 -translate-y-1/2'
+            : 'sticky bottom-0'
+        } bg-gradient-to-t from-white/95 dark:from-[#343541]/95 to-transparent backdrop-blur supports-[backdrop-filter]:backdrop-blur`}
+      >
         <ChatInput
           onSubmit={handleSendMessage}
           disabled={isSending}
-          placeholder={isSending ? 'Sending...' : 'Send a message...'}
+          placeholder={isSending ? 'Sending…' : 'Ask anything'}
         />
       </div>
     </div>

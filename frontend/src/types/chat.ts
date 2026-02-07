@@ -1,8 +1,5 @@
 /**
  * TypeScript type definitions for Calm Sphere chat functionality
- * 
- * LOCAL MEMORY ONLY - All thread state is stored in React state.
- * No backend API calls are made.
  */
 
 /**
@@ -19,6 +16,8 @@ export interface Message {
   role: MessageRole;
   /** Text content of the message */
   content: string;
+  /** ISO 8601 timestamp (when available from API) */
+  timestamp?: string;
 }
 
 

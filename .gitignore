@@ -32,6 +32,7 @@ env/
 backend/__pycache__/
 backend/*.pyc
 backend/.env
+backend/.env.example
 backend/requirements.txt.lock
 backend/db.sqlite3
 
@@ -100,6 +101,10 @@ debug.log
 .tmp/
 *.pid
 *.seed
+
+# Firebase
+backend/firebase_key.json
+backend/core/firebase_storage.py
 
 # Documentation
 *.pdf

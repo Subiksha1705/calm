@@ -169,6 +169,41 @@ class InMemoryConversationStore:
             return []
         
         return list(self._threads[user_id].values())
+
+    def get_last_user_message(self, user_id: str, thread_id: str) -> Optional[str]:
+        """Get the latest user message content in a thread."""
+        thread = self.get_thread(user_id, thread_id)
+        if not thread:
+            return None
+        for msg in reversed(thread.get("messages", [])):
+            if msg.get("role") == "user":
+                return msg.get("content", "")
+        return None
+
+    def replace_last_assistant_message(
+        self, user_id: str, thread_id: str, content: str
+    ) -> bool:
+        """Replace the latest assistant message in a thread.
+
+        Returns:
+            True if a message was replaced, False if no assistant message existed.
+        """
+        if user_id not in self._threads:
+            raise KeyError(f"User '{user_id}' not found")
+
+        if thread_id not in self._threads[user_id]:
+            raise KeyError(f"Thread '{thread_id}' not found for user '{user_id}'")
+
+        messages = self._threads[user_id][thread_id]["messages"]
+        for idx in range(len(messages) - 1, -1, -1):
+            if messages[idx].get("role") == "assistant":
+                now = datetime.utcnow().isoformat() + "Z"
+                messages[idx]["content"] = content
+                messages[idx]["timestamp"] = now
+                self._threads[user_id][thread_id]["last_updated"] = now
+                return True
+
+        return False
     
     def delete_thread(self, user_id: str, thread_id: str) -> bool:
         """Delete a thread for a user.

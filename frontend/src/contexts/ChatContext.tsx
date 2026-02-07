@@ -1,41 +1,59 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
-import type { Thread, ThreadListItem } from '@/types/chat';
+import { createContext, useContext, useEffect, useMemo, useState, useCallback, type ReactNode } from 'react';
+import type { Message, Thread, ThreadListItem } from '@/types/chat';
+import { ApiError, api } from '@/lib/api';
 
 
 /**
- * ChatContext - Local memory state management for chat threads
- * 
- * TASK 1: Remove all backend/API usage - Store threads in React state
- * 
- * This context provides:
- * - threads: Array of all threads (stored in local memory)
- * - threadListItems: Derived list items for sidebar display
- * - activeThread: Currently selected thread (null when no thread selected)
- * - createThread: Creates a new thread with a message
- * - selectThread: Loads an existing thread
- * - addMessage: Adds a message to the active thread
- * - clearActiveThread: Clears active thread (shows greeting)
+ * ChatContext - API-backed thread state management
+ *
+ * Thread state is persisted in the backend (in-memory for now).
+ * Frontend uses REST API to:
+ * - create threads
+ * - list threads
+ * - load thread messages
+ * - send messages / regenerate last response
  */
 
-// Generate unique thread ID
-const generateThreadId = () => `thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+const USER_ID_STORAGE_KEY = 'calm_sphere_user_id';
+
+function createRandomUserId() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return `user_${crypto.randomUUID()}`;
+  }
+  return `user_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+function getOrCreateUserId() {
+  try {
+    const existing = localStorage.getItem(USER_ID_STORAGE_KEY);
+    if (existing) return existing;
+    const created = createRandomUserId();
+    localStorage.setItem(USER_ID_STORAGE_KEY, created);
+    return created;
+  } catch {
+    // localStorage may be unavailable (privacy mode, SSR)
+    return createRandomUserId();
+  }
+}
 
 interface ChatContextType {
-  // Thread state - full Thread objects
-  threads: Thread[];
   // Thread list items for sidebar display
   threadListItems: ThreadListItem[];
   // Active thread (null when no thread selected)
   activeThread: Thread | null;
-  
-  // Thread actions
-  createThread: (message: string) => Thread;
-  selectThread: (threadId: string) => void;
+
+  userId: string | null;
+  isThreadsLoading: boolean;
+  isThreadLoading: boolean;
+
+  // Thread actions (API-backed)
+  refreshThreads: () => Promise<void>;
+  selectThread: (threadId: string) => Promise<boolean>;
   clearActiveThread: () => void;
-  addMessage: (content: string, role: 'user' | 'assistant') => void;
-  replaceLastAssistantMessage: (content: string) => void;
+  sendMessage: (content: string) => Promise<string>; // returns threadId
+  regenerateLast: () => Promise<void>;
 }
 
 const ChatContext = createContext<ChatContextType | null>(null);
@@ -49,105 +67,145 @@ const ChatContext = createContext<ChatContextType | null>(null);
  * @param children - Child components to wrap
  */
 export function ChatProvider({ children }: { children: ReactNode }) {
-  const [threads, setThreads] = useState<Thread[]>([]);
-  const [activeThread, setActiveThread] = useState<Thread | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [threadListItems, setThreadListItems] = useState<ThreadListItem[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [activeMessages, setActiveMessages] = useState<Message[]>([]);
+  const [activeThreadMeta, setActiveThreadMeta] = useState<Omit<Thread, 'messages'> | null>(null);
+  const [isThreadsLoading, setIsThreadsLoading] = useState(false);
+  const [isThreadLoading, setIsThreadLoading] = useState(false);
 
-  // Derive ThreadListItem from Thread for sidebar display
-  const threadListItems: ThreadListItem[] = threads.map(thread => ({
-    id: thread.id,
-    preview: thread.messages[thread.messages.length - 1]?.content.slice(0, 50) || 'New Chat',
-    createdAt: thread.createdAt,
-    updatedAt: thread.updatedAt,
-  }));
-
-  // Create a new thread with the first message
-  // TASK 4: Create thread on first message
-  const createThread = useCallback((message: string): Thread => {
-    const now = new Date().toISOString();
-    const newThread: Thread = {
-      id: generateThreadId(),
-      messages: [{ role: 'user', content: message }],
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    setThreads(prev => [newThread, ...prev]);
-    setActiveThread(newThread);
-    return newThread;
+  // Initialize stable per-browser user id (no hardcoding)
+  useEffect(() => {
+    setUserId(getOrCreateUserId());
   }, []);
 
-  // Select an existing thread
-  // TASK 5: Thread continuation - Load messages when clicking sidebar thread
-  const selectThread = useCallback((threadId: string) => {
-    const thread = threads.find(t => t.id === threadId);
-    if (thread) {
-      setActiveThread(thread);
+  const refreshThreads = useCallback(async () => {
+    if (!userId) return;
+    setIsThreadsLoading(true);
+    try {
+      const res = await api.listThreads(userId);
+      const items: ThreadListItem[] = res.threads.map((t) => ({
+        id: t.thread_id,
+        createdAt: t.created_at,
+        updatedAt: t.last_updated,
+        preview: t.preview,
+      }));
+      setThreadListItems(items);
+    } finally {
+      setIsThreadsLoading(false);
     }
-  }, [threads]);
+  }, [userId]);
 
-  // Clear active thread - shows greeting
-  // TASK 3: New chat behavior - Clear activeThread (set to null)
+  // Load thread list once we have a user id
+  useEffect(() => {
+    if (!userId) return;
+    void refreshThreads();
+  }, [userId, refreshThreads]);
+
+  const selectThread = useCallback(async (threadId: string) => {
+    if (!userId) return false;
+
+    setIsThreadLoading(true);
+    setActiveThreadId(threadId);
+    try {
+      const res = await api.getThreadMessages(userId, threadId);
+      setActiveMessages(
+        res.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          timestamp: m.timestamp,
+        }))
+      );
+
+      const metaFromList = threadListItems.find((t) => t.id === threadId) || null;
+      setActiveThreadMeta(
+        metaFromList
+          ? { id: metaFromList.id, createdAt: metaFromList.createdAt, updatedAt: metaFromList.updatedAt }
+          : { id: threadId, createdAt: '', updatedAt: '' }
+      );
+      return true;
+    } catch (e: unknown) {
+      // 404 -> thread not found
+      if (e instanceof ApiError && e.status === 404) {
+        setActiveThreadId(null);
+        setActiveMessages([]);
+        setActiveThreadMeta(null);
+        return false;
+      }
+      throw e;
+    } finally {
+      setIsThreadLoading(false);
+    }
+  }, [userId, threadListItems]);
+
   const clearActiveThread = useCallback(() => {
-    setActiveThread(null);
+    setActiveThreadId(null);
+    setActiveMessages([]);
+    setActiveThreadMeta(null);
   }, []);
 
-  // Add a message to the active thread
-  const addMessage = useCallback((content: string, role: 'user' | 'assistant') => {
-    if (!activeThread) return;
+  const sendMessage = useCallback(async (content: string) => {
+    if (!userId) throw new Error('User not initialized');
 
-    const updatedThread: Thread = {
-      ...activeThread,
-      messages: [...activeThread.messages, { role, content }],
-      updatedAt: new Date().toISOString(),
-    };
+    let threadId = activeThreadId;
+    if (!threadId) {
+      const created = await api.createThread(userId);
+      threadId = created.thread_id;
+      setActiveThreadId(threadId);
+      setActiveThreadMeta({ id: threadId, createdAt: '', updatedAt: '' });
+    }
 
-    // Update threads array
-    setThreads(prev => prev.map(t => 
-      t.id === activeThread.id ? updatedThread : t
-    ));
+    const now = new Date().toISOString();
+    setActiveMessages((prev) => [...prev, { role: 'user', content, timestamp: now }]);
 
-    // Update active thread
-    setActiveThread(updatedThread);
-  }, [activeThread]);
+    const res = await api.sendMessage(userId, threadId, content);
+    const assistantNow = new Date().toISOString();
+    setActiveMessages((prev) => [...prev, { role: 'assistant', content: res.reply, timestamp: assistantNow }]);
 
-  // Replace the latest assistant message content (used for "Regenerate" UI)
-  const replaceLastAssistantMessage = useCallback((content: string) => {
-    if (!activeThread) return;
+    void refreshThreads();
+    return threadId;
+  }, [userId, activeThreadId, refreshThreads]);
 
-    const lastAssistantIndex = (() => {
-      for (let i = activeThread.messages.length - 1; i >= 0; i -= 1) {
-        if (activeThread.messages[i]?.role === 'assistant') return i;
+  const regenerateLast = useCallback(async () => {
+    if (!userId || !activeThreadId) return;
+
+    const res = await api.regenerate(userId, activeThreadId);
+    const now = new Date().toISOString();
+
+    setActiveMessages((prev) => {
+      for (let i = prev.length - 1; i >= 0; i -= 1) {
+        if (prev[i]?.role === 'assistant') {
+          const next = [...prev];
+          next[i] = { ...next[i], content: res.reply, timestamp: now };
+          return next;
+        }
       }
-      return -1;
-    })();
+      return [...prev, { role: 'assistant', content: res.reply, timestamp: now }];
+    });
 
-    if (lastAssistantIndex < 0) return;
+    void refreshThreads();
+  }, [userId, activeThreadId, refreshThreads]);
 
-    const updatedMessages = activeThread.messages.map((m, idx) =>
-      idx === lastAssistantIndex ? { ...m, content } : m
-    );
-
-    const updatedThread: Thread = {
-      ...activeThread,
-      messages: updatedMessages,
-      updatedAt: new Date().toISOString(),
-    };
-
-    setThreads(prev => prev.map(t => (t.id === activeThread.id ? updatedThread : t)));
-    setActiveThread(updatedThread);
-  }, [activeThread]);
+  const activeThread = useMemo<Thread | null>(() => {
+    if (!activeThreadId) return null;
+    const meta = activeThreadMeta || { id: activeThreadId, createdAt: '', updatedAt: '' };
+    return { ...meta, messages: activeMessages };
+  }, [activeThreadId, activeThreadMeta, activeMessages]);
 
   return (
     <ChatContext.Provider 
       value={{ 
-        threads,
         threadListItems,
-        activeThread, 
-        createThread, 
-        selectThread, 
+        activeThread,
+        userId,
+        isThreadsLoading,
+        isThreadLoading,
+        refreshThreads,
+        selectThread,
         clearActiveThread,
-        addMessage,
-        replaceLastAssistantMessage,
+        sendMessage,
+        regenerateLast,
       }}
     >
       {children}

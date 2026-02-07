@@ -5,10 +5,13 @@ This module defines the data models for conversation threads.
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import List
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+
+# Import Message directly to avoid forward reference issues
+from schemas.chat import Message
 
 
 class CreateThreadRequest(BaseModel):
@@ -60,12 +63,8 @@ class ThreadListItem(BaseModel):
 
 class ThreadMessagesResponse(BaseModel):
     """Response for getting all messages in a thread."""
-    messages: List["Message"] = Field(description="Ordered list of messages in thread")
+    messages: List[Message] = Field(description="Ordered list of messages in thread")
 
-
-# Import Message for type hints (avoid circular import at runtime)
-if TYPE_CHECKING:
-    from schemas.chat import Message
 
 __all__ = [
     "CreateThreadRequest",

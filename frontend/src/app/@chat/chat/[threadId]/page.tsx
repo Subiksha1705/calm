@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { UnifiedChat } from '@/components/UnifiedChat';
+import { ChatWindow } from '@/components/ChatWindow';
 import { useChat } from '@/contexts/ChatContext';
 
 
@@ -28,26 +28,20 @@ import { useChat } from '@/contexts/ChatContext';
 export default function ChatThreadPage() {
   const params = useParams();
   const router = useRouter();
-  const { threads, selectThread } = useChat();
+  const { selectThread, isThreadLoading } = useChat();
   
   const threadId = params.threadId as string;
 
   // Select the thread when the page loads
   useEffect(() => {
-    if (threadId) {
-      // Check if the thread exists
-      const threadExists = threads.some(t => t.id === threadId);
-      if (threadExists) {
-        selectThread(threadId);
-      } else {
-        // Thread doesn't exist, redirect to /chat
-        router.push('/chat');
-      }
-    }
-  }, [threadId, threads, selectThread, router]);
+    if (!threadId) return;
+    void (async () => {
+      const ok = await selectThread(threadId);
+      if (!ok) router.push('/chat');
+    })();
+  }, [threadId, selectThread, router]);
 
-  // If we have a threadId but no matching thread, show loading
-  if (threadId && !threads.some(t => t.id === threadId)) {
+  if (isThreadLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-gray-500 dark:text-gray-400">Loading...</div>
@@ -55,5 +49,5 @@ export default function ChatThreadPage() {
     );
   }
 
-  return <UnifiedChat />;
+  return <ChatWindow />;
 }

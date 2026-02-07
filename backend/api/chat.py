@@ -14,7 +14,7 @@ Processing flow:
 
 from fastapi import APIRouter, HTTPException
 
-from schemas.chat import ChatRequest, ChatResponse
+from schemas.chat import ChatRequest, ChatResponse, RegenerateRequest
 from core.storage import conversation_store
 from core.llm import llm_service
 
@@ -75,6 +75,48 @@ def send_message(request: ChatRequest) -> ChatResponse:
         content=reply
     )
     
+    return ChatResponse(reply=reply)
+
+
+@router.post("/regenerate", response_model=ChatResponse)
+def regenerate_last_response(request: RegenerateRequest) -> ChatResponse:
+    """Regenerate the latest assistant response in a thread.
+
+    This endpoint:
+    1. Validates the thread exists and belongs to the user
+    2. Finds the most recent user message for context
+    3. Generates a new assistant reply
+    4. Replaces the last assistant message (if present), otherwise appends it
+    """
+    thread = conversation_store.get_thread(request.user_id, request.thread_id)
+    if not thread:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Thread '{request.thread_id}' not found for user '{request.user_id}'",
+        )
+
+    last_user_message = conversation_store.get_last_user_message(request.user_id, request.thread_id)
+    if not last_user_message:
+        raise HTTPException(status_code=400, detail="No user message found to regenerate from")
+
+    reply = llm_service.generate_response(
+        user_id=request.user_id,
+        thread_id=request.thread_id,
+        user_message=last_user_message,
+    )
+
+    replaced = conversation_store.replace_last_assistant_message(
+        user_id=request.user_id,
+        thread_id=request.thread_id,
+        content=reply,
+    )
+    if not replaced:
+        conversation_store.add_assistant_message(
+            user_id=request.user_id,
+            thread_id=request.thread_id,
+            content=reply,
+        )
+
     return ChatResponse(reply=reply)
 
 

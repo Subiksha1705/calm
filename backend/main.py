@@ -11,32 +11,62 @@ Architecture (PRD Section 4):
          ↓
     Hugging Face Inference API (future)
          ↓
-    Firebase Firestore (future)
+    Firebase Firestore
 
-This implementation uses in-memory storage for development.
-Replace with Firestore for production.
-
-Repository Structure (PRD Section 6):
-    backend/
-    ├── api/            # Route definitions
-    │   ├── chat.py
-    │   ├── threads.py
-    │   └── health.py
-    ├── core/           # Business logic
-    │   ├── storage.py
-    │   └── llm.py
-    ├── schemas/        # Pydantic models
-    │   ├── chat.py
-    │   └── thread.py
-    ├── main.py
-    └── requirements.txt
+This implementation supports both in-memory (development) and Firebase (production).
+Set USE_FIREBASE=true in .env to use Firebase.
 """
 
+# Load environment variables from .env file FIRST
+from dotenv import load_dotenv
+load_dotenv()
+
+import os
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+# Set up logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 from api.health import router as health_router
 from api.threads import router as threads_router
 from api.chat import router as chat_router
+from core.storage import conversation_store
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler for startup/shutdown events."""
+    # Startup
+    use_firebase = os.getenv("USE_FIREBASE", "false").lower() == "true"
+    logger.info(f"🔧 USE_FIREBASE setting: {use_firebase}")
+    
+    if use_firebase:
+        logger.info("🚀 Initializing Firebase Firestore...")
+        try:
+            from core.firebase_storage import get_conversation_store
+            global conversation_store
+            conversation_store = get_conversation_store()
+            logger.info("✅ Firebase Firestore connected successfully!")
+        except Exception as e:
+            logger.error(f"⚠️  Firebase initialization failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            logger.info("📝 Falling back to in-memory storage")
+    else:
+        logger.info("📝 Using in-memory storage (set USE_FIREBASE=true in .env)")
+    
+    yield
+    
+    # Shutdown
+    logger.info("👋 Shutting down...")
 
 
 # Initialize FastAPI application
@@ -54,7 +84,18 @@ app = FastAPI(
     ),
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan,
+)
+
+# CORS (required for browser-based frontend)
+cors_origins = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000").split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Include API routers
@@ -76,9 +117,13 @@ def root() -> dict:
 
 if __name__ == "__main__":
     import uvicorn
+    
+    host = os.getenv("BACKEND_HOST", "127.0.0.1")
+    port = int(os.getenv("BACKEND_PORT", 8000))
+    
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
-        port=8000,
+        host=host,
+        port=port,
         reload=True
     )
