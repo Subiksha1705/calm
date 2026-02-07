@@ -70,6 +70,23 @@ class ChatResponse(BaseModel):
     reply: str = Field(description="The assistant's reply message")
 
 
+class StartChatRequest(BaseModel):
+    """Request body to start a new thread with the first message.
+
+    This avoids a separate /threads call, improving latency for new chats.
+    """
+
+    user_id: str = Field(description="ID of the user starting the chat")
+    message: str = Field(description="The first message content to send")
+
+
+class StartChatResponse(BaseModel):
+    """Response body for starting a chat thread and receiving first reply."""
+
+    thread_id: str = Field(description="ID of the newly created thread")
+    reply: str = Field(description="The assistant's reply message")
+
+
 class RegenerateRequest(BaseModel):
     """Request body for regenerating the latest assistant response in a thread.
 
@@ -92,6 +109,8 @@ __all__ = [
     "Message",
     "ChatRequest",
     "ChatResponse",
+    "StartChatRequest",
+    "StartChatResponse",
     "RegenerateRequest",
     "ErrorResponse",
 ]

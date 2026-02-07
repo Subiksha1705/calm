@@ -74,6 +74,23 @@ class InMemoryConversationStore:
         self._threads[user_id][thread_id] = thread_data
         
         return thread_id
+
+    def create_thread_with_id(self, user_id: str, thread_id: str) -> str:
+        """Create a new empty thread using a provided thread_id."""
+        now = datetime.utcnow().isoformat() + "Z"
+
+        thread_data = {
+            "thread_id": thread_id,
+            "created_at": now,
+            "last_updated": now,
+            "messages": [],
+        }
+
+        if user_id not in self._threads:
+            self._threads[user_id] = {}
+
+        self._threads[user_id][thread_id] = thread_data
+        return thread_id
     
     def add_user_message(self, user_id: str, thread_id: str, content: str) -> Dict[str, Any]:
         """Add a user message to a thread.
@@ -143,6 +160,35 @@ class InMemoryConversationStore:
         self._threads[user_id][thread_id]["last_updated"] = now
         
         return message
+
+    def add_exchange(
+        self,
+        user_id: str,
+        thread_id: str,
+        user_content: str,
+        assistant_content: str,
+    ) -> Dict[str, Any]:
+        """Add a user message + assistant reply as a single operation."""
+        user_msg = self.add_user_message(user_id, thread_id, user_content)
+        assistant_msg = self.add_assistant_message(user_id, thread_id, assistant_content)
+        return {"user": user_msg, "assistant": assistant_msg}
+
+    def start_thread_with_exchange(
+        self,
+        user_id: str,
+        thread_id: str,
+        user_content: str,
+        assistant_content: str,
+    ) -> Dict[str, Any]:
+        """Create a new thread and add the first exchange."""
+        self.create_thread_with_id(user_id, thread_id)
+        exchange = self.add_exchange(
+            user_id=user_id,
+            thread_id=thread_id,
+            user_content=user_content,
+            assistant_content=assistant_content,
+        )
+        return {"thread_id": thread_id, **exchange}
     
     def get_thread(self, user_id: str, thread_id: str) -> Optional[Dict[str, Any]]:
         """Get a thread by user and thread ID.

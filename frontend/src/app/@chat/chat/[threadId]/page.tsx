@@ -28,18 +28,19 @@ import { useChat } from '@/contexts/ChatContext';
 export default function ChatThreadPage() {
   const params = useParams();
   const router = useRouter();
-  const { selectThread, isThreadLoading } = useChat();
+  const { selectThread, isThreadLoading, activeThread } = useChat();
   
   const threadId = params.threadId as string;
 
   // Select the thread when the page loads
   useEffect(() => {
     if (!threadId) return;
+    if (activeThread?.id === threadId) return;
     void (async () => {
       const ok = await selectThread(threadId);
       if (!ok) router.push('/chat');
     })();
-  }, [threadId, selectThread, router]);
+  }, [threadId, selectThread, router, activeThread?.id]);
 
   if (isThreadLoading) {
     return (

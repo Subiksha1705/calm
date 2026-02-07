@@ -106,6 +106,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const selectThread = useCallback(async (threadId: string) => {
     if (!userId) return false;
 
+    // Avoid redundant network fetch when the thread is already active and loaded.
+    if (threadId === activeThreadId) return true;
+
     setIsThreadLoading(true);
     setActiveThreadId(threadId);
     try {
@@ -137,7 +140,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsThreadLoading(false);
     }
-  }, [userId, threadListItems]);
+  }, [userId, threadListItems, activeThreadId]);
 
   const clearActiveThread = useCallback(() => {
     setActiveThreadId(null);
@@ -150,18 +153,24 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     let threadId = activeThreadId;
     if (!threadId) {
-      const created = await api.createThread(userId);
-      threadId = created.thread_id;
+      const started = await api.startChat(userId, content);
+      threadId = started.thread_id;
       setActiveThreadId(threadId);
       setActiveThreadMeta({ id: threadId, createdAt: '', updatedAt: '' });
+
+      const now = new Date().toISOString();
+      setActiveMessages([
+        { role: 'user', content, timestamp: now },
+        { role: 'assistant', content: started.reply, timestamp: now },
+      ]);
+    } else {
+      const now = new Date().toISOString();
+      setActiveMessages((prev) => [...prev, { role: 'user', content, timestamp: now }]);
+
+      const res = await api.sendMessage(userId, threadId, content);
+      const assistantNow = new Date().toISOString();
+      setActiveMessages((prev) => [...prev, { role: 'assistant', content: res.reply, timestamp: assistantNow }]);
     }
-
-    const now = new Date().toISOString();
-    setActiveMessages((prev) => [...prev, { role: 'user', content, timestamp: now }]);
-
-    const res = await api.sendMessage(userId, threadId, content);
-    const assistantNow = new Date().toISOString();
-    setActiveMessages((prev) => [...prev, { role: 'assistant', content: res.reply, timestamp: assistantNow }]);
 
     void refreshThreads();
     return threadId;
