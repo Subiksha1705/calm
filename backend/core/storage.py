@@ -23,7 +23,10 @@ This structure ensures:
 - O(1) access to any thread for a user
 """
 
+from __future__ import annotations
+
 from datetime import datetime
+import os
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -155,6 +158,12 @@ class InMemoryConversationStore:
             return None
         
         return self._threads[user_id].get(thread_id)
+
+    def thread_exists(self, user_id: str, thread_id: str) -> bool:
+        """Check whether a thread exists for a user (fast path)."""
+        if user_id not in self._threads:
+            return False
+        return thread_id in self._threads[user_id]
     
     def get_user_threads(self, user_id: str) -> List[Dict[str, Any]]:
         """Get all threads for a user.
@@ -225,11 +234,53 @@ class InMemoryConversationStore:
         return True
 
 
-# Global store instance (singleton pattern)
-conversation_store = InMemoryConversationStore()
+class ConversationStoreProxy:
+    """Thin proxy that allows swapping the underlying store at runtime.
+
+    API modules import `conversation_store` once at import time. Reassigning a module
+    global later (e.g. during FastAPI startup) will not update those references.
+    A proxy keeps the imported object stable while allowing the implementation to
+    be swapped (in-memory vs Firestore).
+    """
+
+    def __init__(self, store: Any):
+        self._store = store
+
+    def set_store(self, store: Any) -> None:
+        self._store = store
+
+    def get_store(self) -> Any:
+        return self._store
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._store, name)
+
+
+# Global store instance (swappable via proxy)
+conversation_store = ConversationStoreProxy(InMemoryConversationStore())
+
+
+def init_conversation_store_from_env() -> str:
+    """Initialize the global conversation store based on env vars.
+
+    Returns:
+        A short identifier of the selected backend ("firebase" or "memory").
+    """
+    use_firebase = os.getenv("USE_FIREBASE", "false").lower() == "true"
+    if not use_firebase:
+        conversation_store.set_store(InMemoryConversationStore())
+        return "memory"
+
+    # Import lazily so dev installs don't need firebase-admin.
+    from core.firebase_storage import FirebaseConversationStore
+
+    conversation_store.set_store(FirebaseConversationStore())
+    return "firebase"
 
 
 __all__ = [
     "InMemoryConversationStore",
     "conversation_store",
+    "ConversationStoreProxy",
+    "init_conversation_store_from_env",
 ]

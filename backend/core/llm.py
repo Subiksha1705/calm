@@ -11,9 +11,9 @@ The PRD specifies:
 - Model configurable via environment variable
 """
 
-from typing import Any, Dict, List, Optional
+from __future__ import annotations
 
-from core.storage import InMemoryConversationStore
+from typing import Any, Dict, List, Optional
 
 
 class LLMService:
@@ -37,7 +37,7 @@ class LLMService:
     
     def __init__(
         self, 
-        store: InMemoryConversationStore,
+        store: Any | None,
         mock_mode: bool = True,
         model_name: str = "google/flan-t5-base"
     ):
@@ -51,6 +51,9 @@ class LLMService:
         self._store = store
         self._mock_mode = mock_mode
         self._model_name = model_name
+
+    def set_store(self, store: Any) -> None:
+        self._store = store
     
     def generate_response(
         self, 
@@ -111,6 +114,9 @@ class LLMService:
         Raises:
             NotImplementedError: Real LLM integration not yet implemented
         """
+        if self._store is None:
+            raise RuntimeError("LLMService store not configured")
+
         # Get conversation context
         thread = self._store.get_thread(user_id, thread_id)
         

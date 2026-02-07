@@ -74,11 +74,14 @@ def list_threads(user_id: Optional[str] = None) -> ListThreadsResponse:
     
     thread_items = []
     for thread in threads_data:
+        preview = thread.get("preview", "")
+        if not preview and thread.get("messages"):
+            preview = thread["messages"][-1]["content"][:50] + "..."
         thread_item = ThreadListItem(
             thread_id=thread["thread_id"],
             created_at=thread["created_at"],
             last_updated=thread["last_updated"],
-            preview=thread["messages"][-1]["content"][:50] + "..." if thread["messages"] else ""
+            preview=preview
         )
         thread_items.append(thread_item)
     

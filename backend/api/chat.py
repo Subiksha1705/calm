@@ -46,9 +46,12 @@ def send_message(request: ChatRequest) -> ChatResponse:
         HTTPException: If thread doesn't exist or other errors occur
     """
     # Validate thread exists
-    thread = conversation_store.get_thread(request.user_id, request.thread_id)
-    
-    if not thread:
+    exists = (
+        conversation_store.thread_exists(request.user_id, request.thread_id)
+        if hasattr(conversation_store, "thread_exists")
+        else bool(conversation_store.get_thread(request.user_id, request.thread_id))
+    )
+    if not exists:
         raise HTTPException(
             status_code=404,
             detail=f"Thread '{request.thread_id}' not found for user '{request.user_id}'"
@@ -88,8 +91,12 @@ def regenerate_last_response(request: RegenerateRequest) -> ChatResponse:
     3. Generates a new assistant reply
     4. Replaces the last assistant message (if present), otherwise appends it
     """
-    thread = conversation_store.get_thread(request.user_id, request.thread_id)
-    if not thread:
+    exists = (
+        conversation_store.thread_exists(request.user_id, request.thread_id)
+        if hasattr(conversation_store, "thread_exists")
+        else bool(conversation_store.get_thread(request.user_id, request.thread_id))
+    )
+    if not exists:
         raise HTTPException(
             status_code=404,
             detail=f"Thread '{request.thread_id}' not found for user '{request.user_id}'",

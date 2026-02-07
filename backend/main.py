@@ -38,7 +38,8 @@ logger = logging.getLogger(__name__)
 from api.health import router as health_router
 from api.threads import router as threads_router
 from api.chat import router as chat_router
-from core.storage import conversation_store
+from core.storage import conversation_store, init_conversation_store_from_env
+from core.llm import llm_service
 
 
 @asynccontextmanager
@@ -46,22 +47,26 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown events."""
     # Startup
     use_firebase = os.getenv("USE_FIREBASE", "false").lower() == "true"
+    fallback_to_memory = os.getenv("FIREBASE_FALLBACK_TO_MEMORY", "false").lower() == "true"
     logger.info(f"🔧 USE_FIREBASE setting: {use_firebase}")
-    
-    if use_firebase:
-        logger.info("🚀 Initializing Firebase Firestore...")
-        try:
-            from core.firebase_storage import get_conversation_store
-            global conversation_store
-            conversation_store = get_conversation_store()
-            logger.info("✅ Firebase Firestore connected successfully!")
-        except Exception as e:
-            logger.error(f"⚠️  Firebase initialization failed: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            logger.info("📝 Falling back to in-memory storage")
-    else:
-        logger.info("📝 Using in-memory storage (set USE_FIREBASE=true in .env)")
+
+    try:
+        selected = init_conversation_store_from_env()
+        logger.info(f"✅ Conversation store initialized: {selected}")
+    except Exception as e:
+        logger.error(f"⚠️  Conversation store initialization failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        if not fallback_to_memory:
+            raise
+        logger.info("📝 Falling back to in-memory storage (FIREBASE_FALLBACK_TO_MEMORY=true)")
+
+    # Allow LLM service to use the configured store for context when needed.
+    try:
+        llm_service.set_store(conversation_store)
+    except Exception:
+        # Non-fatal (mock mode doesn't need store).
+        pass
     
     yield
     
