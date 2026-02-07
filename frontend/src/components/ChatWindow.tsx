@@ -111,7 +111,7 @@ export function ChatWindow() {
           shouldCenterInput
             ? 'absolute left-0 right-0 top-1/2 -translate-y-1/2'
             : 'sticky bottom-0'
-        } bg-gradient-to-t from-white/95 dark:from-[#343541]/95 to-transparent backdrop-blur supports-[backdrop-filter]:backdrop-blur`}
+        }`}
       >
         <ChatInput
           onSubmit={handleSendMessage}
