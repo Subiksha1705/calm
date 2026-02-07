@@ -29,17 +29,14 @@ export function ThreadItem({ thread, isActive = false, onClick }: ThreadItemProp
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-3 py-3 rounded-lg transition-colors ${
+      className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
         isActive
-          ? 'bg-gray-100 dark:bg-[#2A2B32]'
-          : 'hover:bg-gray-50 dark:hover:bg-[#2A2B32]'
+          ? 'bg-gray-100 dark:bg-white/10'
+          : 'hover:bg-gray-50 dark:hover:bg-white/10'
       }`}
     >
-      <div className="text-sm text-gray-800 dark:text-gray-100 truncate">
+      <div className="text-sm text-gray-900 dark:text-gray-100 truncate">
         {title}
-      </div>
-      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-        {new Date(thread.updatedAt).toLocaleDateString()}
       </div>
     </button>
   );

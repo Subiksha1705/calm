@@ -26,7 +26,7 @@ interface ChatInputProps {
 export function ChatInput({
   onSubmit,
   disabled = false,
-  placeholder = 'Send a message...'
+  placeholder = 'Ask anything'
 }: ChatInputProps) {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -55,8 +55,22 @@ export function ChatInput({
   };
 
   return (
-    <div className="w-full max-w-3xl mx-auto px-4 pb-4">
-      <div className="relative flex items-end gap-2 bg-white dark:bg-[#40414F] rounded-xl border border-gray-300 dark:border-[#565869] shadow-sm overflow-hidden">
+    <div className="w-full max-w-3xl mx-auto px-4 pb-6 pt-4">
+      <div className="relative flex items-end gap-2 bg-white dark:bg-[#40414F] rounded-3xl border border-gray-300/80 dark:border-white/10 shadow-sm px-2 py-2">
+        <button
+          type="button"
+          className="flex-shrink-0 h-9 w-9 rounded-full grid place-items-center text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+          aria-label="Add attachment"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M12 5v14M5 12h14"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
         <textarea
           ref={textareaRef}
           value={value}
@@ -65,16 +79,45 @@ export function ChatInput({
           disabled={disabled}
           placeholder={placeholder}
           rows={1}
-          className="w-full px-4 py-3 bg-transparent border-none outline-none resize-none text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 min-h-[52px] max-h-[200px] overflow-y-auto"
+          className="w-full px-1 py-2 bg-transparent border-none outline-none resize-none text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 min-h-[40px] max-h-[200px] overflow-y-auto"
           aria-label="Chat message input"
         />
+
+        <button
+          type="button"
+          disabled
+          className="flex-shrink-0 h-9 w-9 rounded-full grid place-items-center text-gray-400 dark:text-white/40 cursor-not-allowed"
+          aria-label="Voice input"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M12 14a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v4a3 3 0 0 0 3 3Z"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M19 11a7 7 0 0 1-14 0"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+            <path
+              d="M12 18v3"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+
         <button
           onClick={handleSubmit}
           disabled={disabled || !value.trim()}
-          className={`p-2 mb-2 mr-2 rounded-lg transition-colors ${
+          className={`flex-shrink-0 h-9 w-9 rounded-full grid place-items-center transition-colors ${
             value.trim() && !disabled
-              ? 'bg-gray-100 dark:bg-[#202123] text-gray-900 dark:text-gray-100 hover:bg-gray-200 dark:hover:bg-[#2A2B32]'
-              : 'bg-gray-50 dark:bg-[#40414F] text-gray-400 dark:text-gray-500 cursor-not-allowed'
+              ? 'bg-gray-900 text-white hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-white/90'
+              : 'bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-white/10 dark:text-white/40'
           }`}
           aria-label="Send message"
         >
@@ -87,8 +130,11 @@ export function ChatInput({
             className="w-5 h-5"
           >
             <path
-              d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z"
-              fill="currentColor"
+              d="M12 5v14M12 5l-6 6M12 5l6 6"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             />
           </svg>
         </button>

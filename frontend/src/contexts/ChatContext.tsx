@@ -35,6 +35,7 @@ interface ChatContextType {
   selectThread: (threadId: string) => void;
   clearActiveThread: () => void;
   addMessage: (content: string, role: 'user' | 'assistant') => void;
+  replaceLastAssistantMessage: (content: string) => void;
 }
 
 const ChatContext = createContext<ChatContextType | null>(null);
@@ -109,6 +110,33 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setActiveThread(updatedThread);
   }, [activeThread]);
 
+  // Replace the latest assistant message content (used for "Regenerate" UI)
+  const replaceLastAssistantMessage = useCallback((content: string) => {
+    if (!activeThread) return;
+
+    const lastAssistantIndex = (() => {
+      for (let i = activeThread.messages.length - 1; i >= 0; i -= 1) {
+        if (activeThread.messages[i]?.role === 'assistant') return i;
+      }
+      return -1;
+    })();
+
+    if (lastAssistantIndex < 0) return;
+
+    const updatedMessages = activeThread.messages.map((m, idx) =>
+      idx === lastAssistantIndex ? { ...m, content } : m
+    );
+
+    const updatedThread: Thread = {
+      ...activeThread,
+      messages: updatedMessages,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setThreads(prev => prev.map(t => (t.id === activeThread.id ? updatedThread : t)));
+    setActiveThread(updatedThread);
+  }, [activeThread]);
+
   return (
     <ChatContext.Provider 
       value={{ 
@@ -119,6 +147,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         selectThread, 
         clearActiveThread,
         addMessage,
+        replaceLastAssistantMessage,
       }}
     >
       {children}

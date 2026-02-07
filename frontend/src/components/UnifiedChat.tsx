@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import { MessageList } from './MessageList';
 import { EmptyChatState } from './EmptyChatState';
 import { ChatInput } from './ChatInput';
@@ -26,12 +26,13 @@ import { useChat } from '@/contexts/ChatContext';
  * - Else: Fix the input to the bottom
  */
 export function UnifiedChat() {
-  const { activeThread, addMessage } = useChat();
+  const { activeThread, addMessage, replaceLastAssistantMessage } = useChat();
   const [isSending, setIsSending] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Get messages from active thread (from context)
-  const messages = activeThread?.messages || [];
+  const messages = useMemo(() => activeThread?.messages ?? [], [activeThread]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -56,22 +57,47 @@ export function UnifiedChat() {
     }, 500);
   };
 
+  const handleCopyMessage = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // no-op (UI-only)
+    }
+  };
+
+  const handleRegenerate = () => {
+    if (!activeThread || isSending || isRegenerating) return;
+    setIsRegenerating(true);
+
+    setTimeout(() => {
+      replaceLastAssistantMessage(
+        'This is a regenerated simulated response. In production, integrate with your LLM.'
+      );
+      setIsRegenerating(false);
+    }, 450);
+  };
+
   // TASK 2: Chat input positioning logic
   // Center input when thread is empty (new thread with no messages yet)
   const shouldCenterInput = activeThread === null || messages.length === 0;
 
   return (
-    <div className={`flex flex-col h-full ${shouldCenterInput ? 'justify-center' : ''}`}>
+    <div className="relative flex flex-col h-full">
       {/* 
         SCROLLABLE CONTENT AREA
         Only this section is conditional based on message state.
       */}
-      <div className={`${shouldCenterInput ? 'absolute inset-0 flex items-center justify-center' : 'flex-1 overflow-y-auto'}`}>
+      <div className={`${shouldCenterInput ? 'flex-1' : 'flex-1 overflow-y-auto'}`}>
         {messages.length === 0 ? (
           <EmptyChatState userName="User" />
         ) : (
           <>
-            <MessageList messages={messages} />
+            <MessageList
+              messages={messages}
+              isRegenerating={isRegenerating}
+              onCopyMessage={handleCopyMessage}
+              onRegenerate={handleRegenerate}
+            />
             <div ref={messagesEndRef} />
           </>
         )}
@@ -83,13 +109,17 @@ export function UnifiedChat() {
         Users must be able to type at any time regardless of message state.
         Only change POSITION using Tailwind classes.
       */}
-      <div className={`border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-[#343541] ${
-        shouldCenterInput ? 'absolute bottom-0 left-0 right-0' : ''
-      }`}>
+      <div
+        className={`w-full ${
+          shouldCenterInput
+            ? 'absolute left-0 right-0 top-1/2 -translate-y-1/2'
+            : 'sticky bottom-0'
+        } bg-gradient-to-t from-white/95 dark:from-[#343541]/95 to-transparent backdrop-blur supports-[backdrop-filter]:backdrop-blur`}
+      >
         <ChatInput
           onSubmit={handleSendMessage}
           disabled={isSending}
-          placeholder={isSending ? 'Sending...' : 'Send a message...'}
+          placeholder={isSending ? 'Sending…' : 'Ask anything'}
         />
       </div>
     </div>

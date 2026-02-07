@@ -38,22 +38,19 @@ export default function ChatPage() {
 
   // Otherwise, show the empty state with centered input
   return (
-    <div className="flex flex-col h-full justify-center">
-      {/* Empty State - Centered content */}
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-100">
-            Good to see you, User.
+    <div className="flex h-full items-center justify-center">
+      <div className="w-full">
+        <div className="text-center mb-10 px-4">
+          <h2 className="text-3xl font-semibold text-gray-900 dark:text-gray-100">
+            Ready when you are.
           </h2>
         </div>
-      </div>
-      
-      {/* 
-        TASK 2: ChatInput is ALWAYS rendered
-        Do NOT conditionally render ChatInput
-        Only change its POSITION using Tailwind classes
-      */}
-      <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-[#343541]">
+
+        {/*
+          TASK 2: ChatInput is ALWAYS rendered
+          Do NOT conditionally render ChatInput
+          Only change its POSITION using Tailwind classes
+        */}
         <ChatInputWrapper
           isSending={isSending}
           onSendingChange={setIsSending}
@@ -90,7 +87,7 @@ function ChatInputWrapper({ isSending, onSendingChange, createThread }: ChatInpu
     <ChatInput
       onSubmit={handleSendMessage}
       disabled={isSending}
-      placeholder={isSending ? 'Sending...' : 'Send a message...'}
+      placeholder={isSending ? 'Sending…' : 'Ask anything'}
     />
   );
 }

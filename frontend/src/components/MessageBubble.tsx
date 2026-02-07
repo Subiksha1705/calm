@@ -4,74 +4,95 @@ import type { Message } from '@/types/chat';
 /**
  * MessageBubble Component
  * 
- * Displays a single message with role-based styling:
- * - User messages: Right-aligned with gray background
- * - Assistant messages: Left-aligned with transparent/light background
+ * Displays a single message with ChatGPT-like styling:
+ * - No avatars
+ * - No message card backgrounds
+ * - User messages are right-aligned
+ * - Assistant messages are left-aligned with actions (Copy/Regenerate) on the latest assistant message
  * 
  * @param message - The message to display
  */
 interface MessageBubbleProps {
   message: Message;
+  isLastAssistant?: boolean;
+  isRegenerating?: boolean;
+  onCopy?: (text: string) => void;
+  onRegenerate?: () => void;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  isLastAssistant = false,
+  isRegenerating = false,
+  onCopy,
+  onRegenerate,
+}: MessageBubbleProps) {
   const isUser = message.role === 'user';
 
   return (
-    <div
-      className={`w-full ${
-        isUser ? 'bg-gray-100 dark:bg-[#40414F]' : 'bg-transparent dark:bg-transparent'
-      }`}
-    >
-      <div className="w-full max-w-3xl mx-auto px-4 py-6">
-        <div className="flex gap-4">
-          {/* Avatar */}
-          <div
-            className={`flex-shrink-0 w-8 h-8 rounded-sm flex items-center justify-center ${
-              isUser
-                ? 'bg-gray-200 dark:bg-[#202123]'
-                : 'bg-green-500'
-            }`}
-          >
-            {isUser ? (
-              <svg
-                className="w-5 h-5 text-gray-600 dark:text-gray-300"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                />
-              </svg>
-            ) : (
-              <svg
-                className="w-5 h-5 text-white"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-                />
-              </svg>
-            )}
-          </div>
-
-          {/* Message Content */}
-          <div className="flex-1 min-w-0">
-            <div className="font-medium text-gray-900 dark:text-gray-100 text-sm mb-1">
-              {isUser ? 'You' : 'Calm Sphere'}
-            </div>
-            <div className="text-gray-800 dark:text-gray-100 whitespace-pre-wrap break-words">
+    <div className="w-full">
+      <div className="w-full max-w-3xl mx-auto px-4 py-4">
+        <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+          <div className={`min-w-0 ${isUser ? 'text-right' : 'text-left'} max-w-[85%]`}>
+            <div className="text-[15px] leading-6 text-gray-900 dark:text-gray-100 whitespace-pre-wrap break-words">
               {message.content}
             </div>
+
+            {!isUser && isLastAssistant && (onCopy || onRegenerate) ? (
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-gray-500 dark:text-white/50">
+                {onCopy ? (
+                  <button
+                    type="button"
+                    onClick={() => onCopy(message.content)}
+                    className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+                    aria-label="Copy response"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M9 9h10v10H9V9Z"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    Copy
+                  </button>
+                ) : null}
+
+                {onRegenerate ? (
+                  <button
+                    type="button"
+                    onClick={onRegenerate}
+                    disabled={isRegenerating}
+                    className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label="Regenerate response"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M21 12a9 9 0 1 1-3.4-7.1"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                      <path
+                        d="M21 3v6h-6"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    {isRegenerating ? 'Regenerating…' : 'Regenerate'}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

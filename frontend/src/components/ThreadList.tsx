@@ -20,14 +20,14 @@ interface ThreadListProps {
 export function ThreadList({ threads, activeThreadId, onSelect }: ThreadListProps) {
   if (threads.length === 0) {
     return (
-      <div className="px-3 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+      <div className="px-3 py-4 text-center text-sm text-gray-500 dark:text-white/50">
         No conversations yet
       </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
+    <div className="flex-1 overflow-y-auto px-2 py-2">
       {threads.map((thread) => (
         <ThreadItem
           key={thread.id}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { MessageList } from './MessageList';
 import { EmptyChatState } from './EmptyChatState';
 import { ChatInput } from './ChatInput';
@@ -31,7 +31,7 @@ export function ChatWindow() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Get messages from active thread (from context)
-  const messages = activeThread?.messages || [];
+  const messages = useMemo(() => activeThread?.messages ?? [], [activeThread]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
