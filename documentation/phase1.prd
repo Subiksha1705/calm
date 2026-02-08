@@ -65,7 +65,7 @@ Browser (Next.js)
      ↓ REST API
 FastAPI Backend (Python)
      ↓
-Hugging Face Inference API
+Hugging Face Router (OpenAI-compatible)
      ↓
 Firebase Firestore
 ```
@@ -98,8 +98,8 @@ Firebase Firestore
 
 ### 5.3 AI Layer
 
-* Provider: Hugging Face Inference API
-* Default Model: `google/flan-t5-base`
+* Provider: Hugging Face Router (OpenAI-compatible)
+* Default Model: `meta-llama/Llama-3.2-3B-Instruct`
 * Model configurable via environment variable
 
 ### 5.4 Database

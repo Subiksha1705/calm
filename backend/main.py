@@ -17,9 +17,13 @@ This implementation supports both in-memory (development) and Firebase (producti
 Set USE_FIREBASE=true in .env to use Firebase.
 """
 
-# Load environment variables from .env file FIRST
+# Load environment variables from backend/.env (development) without
+# overriding any real environment variables (production).
+from pathlib import Path
+
 from dotenv import load_dotenv
-load_dotenv()
+
+load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 import os
 import logging

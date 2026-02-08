@@ -29,6 +29,12 @@ def _csv(value: str | None) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
+def _bool(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     host: str
@@ -38,6 +44,22 @@ class Settings:
     cors_allow_credentials: bool
     cors_allow_methods: list[str]
     cors_allow_headers: list[str]
+
+    llm_mock_mode: bool
+    llm_model: str
+    llm_model_response: str
+    llm_model_emotion: str
+    llm_model_risk: str
+    llm_model_analysis: str
+
+    llm_enable_emotion: bool
+    llm_enable_risk: bool
+
+    hugging_face_api_key: str | None
+    hugging_face_base_url: str
+    hugging_face_timeout_s: float
+    hugging_face_max_attempts: int
+    hugging_face_backoff_factor: float
 
 
 @lru_cache(maxsize=1)
@@ -52,6 +74,29 @@ def get_settings() -> Settings:
     cors_allow_methods = _csv(os.getenv("CORS_ALLOW_METHODS", "GET,POST,PUT,PATCH,DELETE,OPTIONS"))
     cors_allow_headers = _csv(os.getenv("CORS_ALLOW_HEADERS", "*"))
 
+    llm_mock_mode = _bool(os.getenv("LLM_MOCK_MODE"), default=True)
+    llm_model_response = os.getenv("LLM_MODEL_RESPONSE") or os.getenv("LLM_MODEL") or "meta-llama/Llama-3.2-3B-Instruct"
+    llm_model_emotion = os.getenv("LLM_MODEL_EMOTION") or "Qwen/Qwen2.5-7B-Instruct"
+    llm_model_risk = os.getenv("LLM_MODEL_RISK") or "openai/gpt-oss-safeguard-20b"
+    llm_model_analysis = os.getenv("LLM_MODEL_ANALYSIS") or "meta-llama/Llama-3.1-70B-Instruct"
+
+    # Back-compat: `llm_model` historically meant the single model used for everything.
+    llm_model = os.getenv("LLM_MODEL") or llm_model_response
+
+    llm_enable_emotion = _bool(os.getenv("LLM_ENABLE_EMOTION"), default=True)
+    llm_enable_risk = _bool(os.getenv("LLM_ENABLE_RISK"), default=True)
+
+    # Support multiple names used across docs/experiments.
+    hugging_face_api_key = (
+        os.getenv("HUGGING_FACE_API_KEY")
+        or os.getenv("HF_API_TOKEN")
+        or os.getenv("HF_API_KEY")
+    )
+    hugging_face_base_url = os.getenv("HUGGING_FACE_BASE_URL", "https://router.huggingface.co")
+    hugging_face_timeout_s = float(os.getenv("HUGGING_FACE_TIMEOUT_S", "30"))
+    hugging_face_max_attempts = int(os.getenv("HUGGING_FACE_MAX_ATTEMPTS", "3"))
+    hugging_face_backoff_factor = float(os.getenv("HUGGING_FACE_BACKOFF_FACTOR", "2"))
+
     return Settings(
         host=host,
         port=port,
@@ -59,5 +104,17 @@ def get_settings() -> Settings:
         cors_allow_credentials=cors_allow_credentials,
         cors_allow_methods=cors_allow_methods,
         cors_allow_headers=cors_allow_headers,
+        llm_mock_mode=llm_mock_mode,
+        llm_model=llm_model,
+        llm_model_response=llm_model_response,
+        llm_model_emotion=llm_model_emotion,
+        llm_model_risk=llm_model_risk,
+        llm_model_analysis=llm_model_analysis,
+        llm_enable_emotion=llm_enable_emotion,
+        llm_enable_risk=llm_enable_risk,
+        hugging_face_api_key=hugging_face_api_key,
+        hugging_face_base_url=hugging_face_base_url,
+        hugging_face_timeout_s=hugging_face_timeout_s,
+        hugging_face_max_attempts=hugging_face_max_attempts,
+        hugging_face_backoff_factor=hugging_face_backoff_factor,
     )
-

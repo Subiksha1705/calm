@@ -6,14 +6,18 @@ Currently uses a mock implementation that can be swapped
 with Hugging Face or other LLM providers.
 
 The PRD specifies:
-- Provider: Hugging Face Inference API
-- Default Model: google/flan-t5-base
-- Model configurable via environment variable
+- Provider: Hugging Face Router (OpenAI-compatible)
+- Models configurable via environment variables
 """
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any, Dict, List, Optional
+
+from core.config import get_settings
+from core.huggingface import HuggingFaceInferenceClient
 
 
 class LLMService:
@@ -39,7 +43,18 @@ class LLMService:
         self, 
         store: Any | None,
         mock_mode: bool = True,
-        model_name: str = "google/flan-t5-base"
+        model_name: str = "meta-llama/Llama-3.2-3B-Instruct",
+        model_response: str | None = None,
+        model_emotion: str | None = None,
+        model_risk: str | None = None,
+        model_analysis: str | None = None,
+        enable_emotion: bool = True,
+        enable_risk: bool = True,
+        hugging_face_api_key: str | None = None,
+        hugging_face_base_url: str = "https://router.huggingface.co",
+        hugging_face_timeout_s: float = 30.0,
+        hugging_face_max_attempts: int = 3,
+        hugging_face_backoff_factor: float = 2.0,
     ):
         """Initialize the LLM service.
         
@@ -51,9 +66,61 @@ class LLMService:
         self._store = store
         self._mock_mode = mock_mode
         self._model_name = model_name
+        self._model_response = model_response or model_name
+        self._model_emotion = model_emotion or "Qwen/Qwen2.5-7B-Instruct"
+        self._model_risk = model_risk or "openai/gpt-oss-safeguard-20b"
+        self._model_analysis = model_analysis or "meta-llama/Llama-3.1-70B-Instruct"
+        self._enable_emotion = enable_emotion
+        self._enable_risk = enable_risk
+        self._hugging_face_api_key = hugging_face_api_key
+        self._hugging_face_base_url = hugging_face_base_url
+        self._hugging_face_timeout_s = hugging_face_timeout_s
+        self._hugging_face_max_attempts = hugging_face_max_attempts
+        self._hugging_face_backoff_factor = hugging_face_backoff_factor
 
     def set_store(self, store: Any) -> None:
         self._store = store
+
+    def configure(
+        self,
+        *,
+        mock_mode: bool | None = None,
+        model_name: str | None = None,
+        model_response: str | None = None,
+        model_emotion: str | None = None,
+        model_risk: str | None = None,
+        model_analysis: str | None = None,
+        enable_emotion: bool | None = None,
+        enable_risk: bool | None = None,
+        hugging_face_api_key: str | None = None,
+        hugging_face_timeout_s: float | None = None,
+        hugging_face_max_attempts: int | None = None,
+        hugging_face_backoff_factor: float | None = None,
+    ) -> None:
+        if mock_mode is not None:
+            self._mock_mode = mock_mode
+        if model_name is not None:
+            self._model_name = model_name
+        if model_response is not None:
+            self._model_response = model_response
+        if model_emotion is not None:
+            self._model_emotion = model_emotion
+        if model_risk is not None:
+            self._model_risk = model_risk
+        if model_analysis is not None:
+            self._model_analysis = model_analysis
+        if enable_emotion is not None:
+            self._enable_emotion = enable_emotion
+        if enable_risk is not None:
+            self._enable_risk = enable_risk
+        if hugging_face_api_key is not None:
+            self._hugging_face_api_key = hugging_face_api_key
+        if hugging_face_timeout_s is not None:
+            self._hugging_face_timeout_s = hugging_face_timeout_s
+        if hugging_face_max_attempts is not None:
+            self._hugging_face_max_attempts = hugging_face_max_attempts
+        if hugging_face_backoff_factor is not None:
+            self._hugging_face_backoff_factor = hugging_face_backoff_factor
     
     def generate_response(
         self, 
@@ -117,66 +184,241 @@ class LLMService:
         if self._store is None:
             raise RuntimeError("LLMService store not configured")
 
-        # Get conversation context
-        thread = self._store.get_thread(user_id, thread_id)
-        
-        if thread:
-            messages = thread.get("messages", [])[-10:]  # Last 10 messages
-        else:
-            messages = []
-        
-        # Build prompt
-        prompt = self._build_prompt(messages, user_message)
-        
-        # TODO: Call Hugging Face Inference API
-        # response = requests.post(
-        #     f"https://api-inference.huggingface.co/models/{self._model_name}",
-        #     headers={"Authorization": f"Bearer {HF_API_KEY}"},
-        #     json={"inputs": prompt}
-        # )
-        
-        raise NotImplementedError(
-            "Real LLM integration not yet implemented. "
-            "Set mock_mode=True for development."
+        if not self._hugging_face_api_key:
+            raise RuntimeError(
+                "Hugging Face API key not configured. Set HUGGING_FACE_API_KEY (or HF_API_TOKEN)."
+            )
+
+        client = HuggingFaceInferenceClient(
+            self._hugging_face_api_key,
+            base_url=self._hugging_face_base_url,
+            timeout_s=self._hugging_face_timeout_s,
+            max_attempts=self._hugging_face_max_attempts,
+            backoff_factor=self._hugging_face_backoff_factor,
+        )
+        history = self._get_thread_history(user_id, thread_id, limit=10)
+
+        if self._enable_risk and self._should_run_risk(user_message, history):
+            risk = self._run_risk(client=client, user_message=user_message, history=history)
+            if risk.get("overall_risk") == "high":
+                return self._high_risk_response()
+
+        emotion: Dict[str, Any] | None = None
+        if self._enable_emotion:
+            emotion = self._run_emotion(client=client, user_message=user_message)
+
+        return self._run_response(
+            client=client,
+            user_message=user_message,
+            history=history,
+            emotion=emotion,
         )
     
-    def _build_prompt(
-        self, 
-        messages: List[Dict[str, Any]], 
-        current_message: str
+    def _get_thread_history(self, user_id: str, thread_id: str, *, limit: int) -> List[Dict[str, str]]:
+        thread = self._store.get_thread(user_id, thread_id)
+        raw_messages: List[Dict[str, Any]] = (thread or {}).get("messages", [])
+        normalized: List[Dict[str, str]] = []
+        for msg in raw_messages[-max(limit, 0) :]:
+            role = msg.get("role")
+            content = msg.get("content")
+            if role in {"user", "assistant"} and isinstance(content, str) and content.strip():
+                normalized.append({"role": role, "content": content})
+        return normalized
+
+    def _should_run_risk(self, user_message: str, history: List[Dict[str, str]]) -> bool:
+        text = (user_message or "").lower()
+        if len(text) >= 600:
+            return True
+        keywords = {
+            "suicide",
+            "kill myself",
+            "self harm",
+            "self-harm",
+            "hurt myself",
+            "end it",
+            "overdose",
+            "die",
+        }
+        if any(k in text for k in keywords):
+            return True
+        # Periodic check to avoid never running it.
+        return (len(history) % 6) == 0
+
+    def _extract_first_json_object(self, text: str) -> Dict[str, Any]:
+        # Best-effort: find the first {...} block and parse it.
+        if not text:
+            raise ValueError("empty response")
+        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        if not match:
+            raise ValueError("no JSON object found")
+        return json.loads(match.group(0))
+
+    def _run_emotion(self, *, client: HuggingFaceInferenceClient, user_message: str) -> Dict[str, Any]:
+        system = (
+            "You are an emotion classifier.\n"
+            "Return ONLY valid JSON with this schema:\n"
+            '{"label":"sad|anxious|angry|neutral|happy|overwhelmed|lonely|stressed|other","confidence":0.0}\n'
+            "No extra keys, no markdown, no explanations."
+        )
+        content = client.chat_completions(
+            model=self._model_emotion,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_message},
+            ],
+            max_tokens=200,
+            temperature=0.0,
+        )
+        try:
+            payload = self._extract_first_json_object(content)
+            label = payload.get("label")
+            conf = payload.get("confidence")
+            if not isinstance(label, str):
+                raise ValueError("missing label")
+            if not isinstance(conf, (int, float)):
+                raise ValueError("missing confidence")
+            return {"label": label, "confidence": float(conf)}
+        except Exception:
+            return {"label": "other", "confidence": 0.0}
+
+    def _run_risk(
+        self,
+        *,
+        client: HuggingFaceInferenceClient,
+        user_message: str,
+        history: List[Dict[str, str]],
+    ) -> Dict[str, Any]:
+        system = (
+            "You are a safety classifier for a mental health support chatbot.\n"
+            "Return ONLY valid JSON with this schema:\n"
+            '{"toxicity":0.0,"self_harm":0.0,"harassment":0.0,"sexual":0.0,"violence":0.0,"overall_risk":"low|medium|high"}\n'
+            "Use overall_risk='high' if self-harm intent is likely or imminent danger is mentioned.\n"
+            "No extra keys, no markdown, no explanations."
+        )
+        # Provide minimal context (last 2 user messages) to reduce false positives.
+        ctx = "\n".join(
+            f"{m['role']}: {m['content']}" for m in history[-4:] if m["role"] in {"user", "assistant"}
+        )
+        content = client.chat_completions(
+            model=self._model_risk,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": f"Context:\n{ctx}\n\nNew message:\n{user_message}"},
+            ],
+            max_tokens=600,
+            temperature=0.0,
+        )
+        try:
+            payload = self._extract_first_json_object(content)
+            overall = payload.get("overall_risk")
+            if overall not in {"low", "medium", "high"}:
+                overall = "low"
+            return {
+                "toxicity": float(payload.get("toxicity", 0.0) or 0.0),
+                "self_harm": float(payload.get("self_harm", 0.0) or 0.0),
+                "harassment": float(payload.get("harassment", 0.0) or 0.0),
+                "sexual": float(payload.get("sexual", 0.0) or 0.0),
+                "violence": float(payload.get("violence", 0.0) or 0.0),
+                "overall_risk": overall,
+            }
+        except Exception:
+            return {
+                "toxicity": 0.0,
+                "self_harm": 0.0,
+                "harassment": 0.0,
+                "sexual": 0.0,
+                "violence": 0.0,
+                "overall_risk": "low",
+            }
+
+    def _run_response(
+        self,
+        *,
+        client: HuggingFaceInferenceClient,
+        user_message: str,
+        history: List[Dict[str, str]],
+        emotion: Dict[str, Any] | None,
     ) -> str:
-        """Build the prompt for the LLM.
-        
-        Args:
-            messages: List of previous messages
-            current_message: The current user message
-            
-        Returns:
-            Formatted prompt string
+        emotion_line = ""
+        if emotion and isinstance(emotion.get("label"), str) and float(emotion.get("confidence", 0.0) or 0.0) >= 0.4:
+            emotion_line = f"\nDetected emotion: {emotion['label']}."
+
+        system = (
+            "You are Calm Sphere, a supportive mental health assistant.\n"
+            "Be empathetic, calm, and concise.\n"
+            "Do not diagnose or give medical advice.\n"
+            "Keep your response to 1–3 short paragraphs.\n"
+            "If the user asks for a routine, give 3–5 concrete, realistic steps.\n"
+            f"{emotion_line}"
+        ).strip()
+
+        messages: List[Dict[str, str]] = [{"role": "system", "content": system}]
+        # Keep a little context without ballooning costs.
+        messages.extend(history[-8:])
+        messages.append({"role": "user", "content": user_message})
+
+        return client.chat_completions(
+            model=self._model_response,
+            messages=messages,
+            max_tokens=256,
+            temperature=0.7,
+        )
+
+    def _high_risk_response(self) -> str:
+        return (
+            "I’m really sorry you’re feeling this way, and I’m glad you told me.\n\n"
+            "If you’re in immediate danger or might harm yourself, please call your local emergency number right now. "
+            "If you’re in the U.S., you can call or text 988 (Suicide & Crisis Lifeline).\n\n"
+            "If you’re safe right now, can you tell me where you are and whether there’s someone you trust you can reach out to?"
+        )
+
+    def analyze_long_text(self, *, text: str) -> str:
+        """Run long-context analysis using the configured analysis model.
+
+        This is intentionally not wired to an API route yet; call from future endpoints/jobs.
         """
-        prompt_parts = [
-            "System: You are a calm, empathetic mental health assistant.",
-            "Conversation:"
-        ]
-        
-        for msg in messages:
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            if role == "user":
-                prompt_parts.append(f"User: {content}")
-            elif role == "assistant":
-                prompt_parts.append(f"Assistant: {content}")
-        
-        prompt_parts.append(f"User: {current_message}")
-        prompt_parts.append("Assistant:")
-        
-        return "\n".join(prompt_parts)
+        if self._mock_mode:
+            return "Mock analysis: ok"
+        if not self._hugging_face_api_key:
+            raise RuntimeError("Hugging Face API key not configured.")
+
+        client = HuggingFaceInferenceClient(
+            self._hugging_face_api_key,
+            base_url=self._hugging_face_base_url,
+            timeout_s=self._hugging_face_timeout_s,
+            max_attempts=self._hugging_face_max_attempts,
+            backoff_factor=self._hugging_face_backoff_factor,
+        )
+        system = (
+            "You are an analysis assistant.\n"
+            "Summarize key themes, risks, and actionable next steps.\n"
+            "Be concise and structured with bullet points."
+        )
+        return client.chat_completions(
+            model=self._model_analysis,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": text}],
+            max_tokens=512,
+            temperature=0.2,
+        )
 
 
 # Global service instance
+_settings = get_settings()
 llm_service = LLMService(
     store=None,  # Will be set after store initialization
-    mock_mode=True
+    mock_mode=_settings.llm_mock_mode,
+    model_name=_settings.llm_model,
+    model_response=_settings.llm_model_response,
+    model_emotion=_settings.llm_model_emotion,
+    model_risk=_settings.llm_model_risk,
+    model_analysis=_settings.llm_model_analysis,
+    enable_emotion=_settings.llm_enable_emotion,
+    enable_risk=_settings.llm_enable_risk,
+    hugging_face_api_key=_settings.hugging_face_api_key,
+    hugging_face_base_url=_settings.hugging_face_base_url,
+    hugging_face_timeout_s=_settings.hugging_face_timeout_s,
+    hugging_face_max_attempts=_settings.hugging_face_max_attempts,
+    hugging_face_backoff_factor=_settings.hugging_face_backoff_factor,
 )
 
 
