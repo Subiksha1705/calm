@@ -109,3 +109,5 @@ backend/core/firebase_storage.py
 # Documentation
 *.pdf
 *.docx
+*.md
+pas.md
