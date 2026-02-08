@@ -113,7 +113,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       return true;
     } catch (e: unknown) {
       // 404 -> thread not found
-      if (e instanceof ApiError && e.status === 404) {
+      if (e instanceof ApiError && e.statusCode === 404) {
         setActiveThreadId(null);
         setActiveMessages([]);
         setActiveThreadMeta(null);
