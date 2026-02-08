@@ -4,8 +4,9 @@ User profile persistence.
 When Firebase is enabled (USE_FIREBASE=true), this upserts a user profile doc:
   users/{uid}
 
-This coexists with threads stored at:
-  users/{uid}/threads/{thread_id}
+This module must not crash at import time if Firebase env vars are missing, to
+support local development and uvicorn reload. Initialization happens in
+`init_user_store_from_env()` from `main.py` lifespan.
 """
 
 from __future__ import annotations
@@ -55,14 +56,41 @@ class FirebaseUserStore:
         return snap.to_dict()
 
 
-def get_user_store():
+class UserStoreProxy:
+    def __init__(self, store: Any):
+        self._store = store
+
+    def set_store(self, store: Any) -> None:
+        self._store = store
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._store, name)
+
+
+user_store = UserStoreProxy(MemoryUserStore())
+
+
+def init_user_store_from_env() -> str:
+    """Initialize the global user store from env vars.
+
+    Returns:
+        "firebase" or "memory"
+    """
     use_firebase = os.getenv("USE_FIREBASE", "false").lower() == "true"
-    if use_firebase:
-        return FirebaseUserStore()
-    return MemoryUserStore()
+    if not use_firebase:
+        user_store.set_store(MemoryUserStore())
+        return "memory"
 
-
-user_store = get_user_store()
+    # If firebase init fails, optionally fall back to memory.
+    fallback = os.getenv("FIREBASE_FALLBACK_TO_MEMORY", "false").lower() == "true"
+    try:
+        user_store.set_store(FirebaseUserStore())
+        return "firebase"
+    except Exception:
+        if not fallback:
+            raise
+        user_store.set_store(MemoryUserStore())
+        return "memory"
 
 
 def upsert_login_profile(

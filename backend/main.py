@@ -44,6 +44,7 @@ from api.threads import router as threads_router
 from api.chat import router as chat_router
 from api.auth import router as auth_router
 from core.storage import conversation_store, init_conversation_store_from_env
+from core.user_store import init_user_store_from_env
 from core.llm import llm_service
 
 
@@ -58,6 +59,8 @@ async def lifespan(app: FastAPI):
     try:
         selected = init_conversation_store_from_env()
         logger.info(f"✅ Conversation store initialized: {selected}")
+        selected_user_store = init_user_store_from_env()
+        logger.info(f"✅ User store initialized: {selected_user_store}")
     except Exception as e:
         logger.error(f"⚠️  Conversation store initialization failed: {e}")
         import traceback
