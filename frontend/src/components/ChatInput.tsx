@@ -56,10 +56,10 @@ export function ChatInput({
 
   return (
     <div className="w-full max-w-3xl mx-auto px-4 pb-6 pt-4">
-      <div className="relative flex items-end gap-2 bg-white dark:bg-[#40414F] rounded-3xl border border-gray-300/80 dark:border-white/10 shadow-sm px-2 py-2">
+      <div className="relative flex items-end gap-2 bg-black/70 rounded-3xl border border-white/10 shadow-sm px-2 py-2">
         <button
           type="button"
-          className="flex-shrink-0 h-9 w-9 rounded-full grid place-items-center text-gray-600 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+          className="flex-shrink-0 h-9 w-9 rounded-full grid place-items-center text-white/70 hover:bg-white/10 transition-colors"
           aria-label="Add attachment"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -79,14 +79,14 @@ export function ChatInput({
           disabled={disabled}
           placeholder={placeholder}
           rows={1}
-          className="w-full px-1 py-2 bg-transparent border-none outline-none resize-none text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 min-h-[40px] max-h-[200px] overflow-y-auto"
+          className="w-full px-1 py-2 bg-transparent border-none outline-none resize-none text-white placeholder:text-white/40 min-h-[40px] max-h-[200px] overflow-y-auto"
           aria-label="Chat message input"
         />
 
         <button
           type="button"
           disabled
-          className="flex-shrink-0 h-9 w-9 rounded-full grid place-items-center text-gray-400 dark:text-white/40 cursor-not-allowed"
+          className="flex-shrink-0 h-9 w-9 rounded-full grid place-items-center text-white/30 cursor-not-allowed"
           aria-label="Voice input"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -116,8 +116,8 @@ export function ChatInput({
           disabled={disabled || !value.trim()}
           className={`flex-shrink-0 h-9 w-9 rounded-full grid place-items-center transition-colors ${
             value.trim() && !disabled
-              ? 'bg-gray-900 text-white hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-white/90'
-              : 'bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-white/10 dark:text-white/40'
+              ? 'bg-white text-black hover:bg-white/90'
+              : 'bg-white/10 text-white/40 cursor-not-allowed'
           }`}
           aria-label="Send message"
         >
@@ -139,7 +139,7 @@ export function ChatInput({
           </svg>
         </button>
       </div>
-      <p className="text-xs text-center text-gray-500 dark:text-gray-400 mt-2">
+      <p className="text-xs text-center text-white/40 mt-2">
         Calm Sphere can make mistakes. Please verify important information.
       </p>
     </div>

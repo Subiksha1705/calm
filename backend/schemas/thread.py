@@ -5,7 +5,7 @@ This module defines the data models for conversation threads.
 """
 
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -43,6 +43,7 @@ class ThreadListItem(BaseModel):
     thread_id: str = Field(description="Unique thread identifier")
     created_at: str = Field(description="ISO 8601 timestamp when thread was created")
     last_updated: str = Field(description="ISO 8601 timestamp of last activity")
+    title: Optional[str] = Field(default=None, description="Short title for the thread")
     preview: str = Field(description="Preview of the last message")
 
     @classmethod
@@ -67,6 +68,14 @@ class ThreadMessagesResponse(BaseModel):
     messages: List[Message] = Field(description="Ordered list of messages in thread")
 
 
+class RenameThreadRequest(BaseModel):
+    title: str = Field(description="New title for the thread")
+
+
+class MutateThreadResponse(BaseModel):
+    ok: bool = Field(description="Whether the operation succeeded")
+
+
 __all__ = [
     "CreateThreadRequest",
     "CreateThreadResponse",
@@ -74,4 +83,6 @@ __all__ = [
     "ListThreadsResponse",
     "ThreadListItem",
     "ThreadMessagesResponse",
+    "RenameThreadRequest",
+    "MutateThreadResponse",
 ]

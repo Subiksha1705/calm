@@ -65,6 +65,7 @@ class InMemoryConversationStore:
             "thread_id": thread_id,
             "created_at": now,
             "last_updated": now,
+            "title": "",
             "messages": []
         }
         
@@ -83,6 +84,7 @@ class InMemoryConversationStore:
             "thread_id": thread_id,
             "created_at": now,
             "last_updated": now,
+            "title": "",
             "messages": [],
         }
 
@@ -121,6 +123,7 @@ class InMemoryConversationStore:
         
         self._threads[user_id][thread_id]["messages"].append(message)
         self._threads[user_id][thread_id]["last_updated"] = now
+        self._threads[user_id][thread_id]["last_user_message"] = content
         
         return message
     
@@ -277,6 +280,17 @@ class InMemoryConversationStore:
             return False
         
         del self._threads[user_id][thread_id]
+        return True
+
+    def rename_thread(self, user_id: str, thread_id: str, title: str) -> bool:
+        """Rename a thread for a user."""
+        if user_id not in self._threads:
+            return False
+        if thread_id not in self._threads[user_id]:
+            return False
+        now = datetime.utcnow().isoformat() + "Z"
+        self._threads[user_id][thread_id]["title"] = title
+        self._threads[user_id][thread_id]["last_updated"] = now
         return True
 
 

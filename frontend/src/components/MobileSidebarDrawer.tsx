@@ -30,6 +30,8 @@ interface MobileSidebarDrawerProps {
   activeThreadId?: string | null;
   onThreadSelect: (threadId: string) => void;
   onNewChat?: () => void;
+  onRenameThread?: (threadId: string, title: string) => void;
+  onDeleteThread?: (threadId: string) => Promise<void> | void;
 }
 
 export function MobileSidebarDrawer({
@@ -39,6 +41,8 @@ export function MobileSidebarDrawer({
   activeThreadId,
   onThreadSelect,
   onNewChat,
+  onRenameThread,
+  onDeleteThread,
 }: MobileSidebarDrawerProps) {
   if (!isOpen) return null;
 
@@ -52,12 +56,12 @@ export function MobileSidebarDrawer({
 
       {/* Drawer */}
       <div
-        className={`fixed inset-y-0 left-0 w-80 bg-white dark:bg-[#202123] z-50 lg:hidden transform transition-transform duration-300 ease-in-out ${
+        className={`fixed inset-y-0 left-0 w-80 bg-[rgba(255,255,255,0.05)] z-50 lg:hidden transform transition-transform duration-300 ease-in-out flex flex-col ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         {/* Drawer Header */}
-        <div className="p-2 border-b border-gray-200/70 dark:border-white/10">
+        <div className="p-2 border-b border-white/10">
           <NewChatButton onClick={onNewChat} />
         </div>
 
@@ -73,10 +77,15 @@ export function MobileSidebarDrawer({
             onThreadSelect(threadId);
             onClose();
           }}
+          onRename={onRenameThread}
+          onDelete={async (threadId) => {
+            await Promise.resolve(onDeleteThread?.(threadId));
+            onClose();
+          }}
         />
 
         {/* Bottom: Profile */}
-        <div className="p-2 border-t border-gray-200/70 dark:border-white/10">
+        <div className="p-2 border-t border-white/10">
           <ProfileMenu onAction={onClose} />
         </div>
       </div>

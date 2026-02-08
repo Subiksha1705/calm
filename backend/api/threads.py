@@ -8,6 +8,7 @@ This module defines the REST API endpoints for thread management:
 """
 
 from typing import List, Optional
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -17,6 +18,8 @@ from schemas.thread import (
     ListThreadsResponse,
     ThreadListItem,
     ThreadMessagesResponse,
+    RenameThreadRequest,
+    MutateThreadResponse,
 )
 from schemas.chat import Message
 from core.storage import conversation_store
@@ -27,6 +30,16 @@ router = APIRouter(
     prefix="/threads",
     tags=["threads"]
 )
+
+_TITLE_WORD_RE = re.compile(r"[^\w\s]", re.UNICODE)
+
+
+def _derive_title(text: str) -> str:
+    cleaned = _TITLE_WORD_RE.sub("", (text or "").replace("\n", " ")).strip()
+    if not cleaned:
+        return "New chat"
+    words = cleaned.split()
+    return " ".join(words[:3])
 
 
 @router.post("", response_model=CreateThreadResponse)
@@ -93,10 +106,12 @@ def list_threads(
         preview = thread.get("preview", "")
         if not preview and thread.get("messages"):
             preview = thread["messages"][-1]["content"][:50] + "..."
+        title = thread.get("title") or _derive_title(thread.get("last_user_message") or preview)
         thread_item = ThreadListItem(
             thread_id=thread["thread_id"],
             created_at=thread["created_at"],
             last_updated=thread["last_updated"],
+            title=title,
             preview=preview
         )
         thread_items.append(thread_item)
@@ -149,6 +164,50 @@ def get_thread_messages(
     ]
     
     return ThreadMessagesResponse(messages=messages)
+
+
+@router.patch("/{thread_id}", response_model=MutateThreadResponse)
+def rename_thread(
+    thread_id: str,
+    request: RenameThreadRequest,
+    user_id: Optional[str] = None,
+    user: Optional[AuthenticatedUser] = Depends(get_optional_user),
+) -> MutateThreadResponse:
+    effective_user_id = user.uid if user else user_id
+    if not effective_user_id:
+        raise HTTPException(status_code=400, detail="user_id query parameter is required")
+    if user and user_id and user_id != user.uid:
+        raise HTTPException(status_code=403, detail="user_id does not match authenticated user")
+
+    title = (request.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title is required")
+
+    if not hasattr(conversation_store, "rename_thread"):
+        raise HTTPException(status_code=501, detail="Rename not supported by store")
+
+    ok = bool(conversation_store.rename_thread(effective_user_id, thread_id, title))
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Thread '{thread_id}' not found")
+    return MutateThreadResponse(ok=True)
+
+
+@router.delete("/{thread_id}", response_model=MutateThreadResponse)
+def delete_thread(
+    thread_id: str,
+    user_id: Optional[str] = None,
+    user: Optional[AuthenticatedUser] = Depends(get_optional_user),
+) -> MutateThreadResponse:
+    effective_user_id = user.uid if user else user_id
+    if not effective_user_id:
+        raise HTTPException(status_code=400, detail="user_id query parameter is required")
+    if user and user_id and user_id != user.uid:
+        raise HTTPException(status_code=403, detail="user_id does not match authenticated user")
+
+    ok = bool(conversation_store.delete_thread(effective_user_id, thread_id))
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Thread '{thread_id}' not found")
+    return MutateThreadResponse(ok=True)
 
 
 __all__ = ["router"]

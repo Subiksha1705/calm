@@ -28,7 +28,7 @@ import { ProfileMenu } from '@/components/ProfileMenu';
  */
 export function Sidebar() {
   const router = useRouter();
-  const { threadListItems, activeThread, selectThread, clearActiveThread } = useChat();
+  const { threadListItems, activeThread, selectThread, clearActiveThread, renameThread, deleteThread } = useChat();
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
   // Handle new chat - clear active thread and navigate to /chat
@@ -47,10 +47,21 @@ export function Sidebar() {
     setIsMobileDrawerOpen(false);
   };
 
+  const handleRenameThread = async (threadId: string, title: string) => {
+    await renameThread(threadId, title);
+  };
+
+  const handleDeleteThread = async (threadId: string) => {
+    await deleteThread(threadId);
+    if (activeThread?.id === threadId) {
+      router.push('/chat');
+    }
+  };
+
   return (
     <>
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col w-[260px] h-screen bg-white dark:bg-[#202123] border-r border-gray-200/70 dark:border-white/10">
+      <aside className="hidden lg:flex flex-col w-[260px] h-screen bg-[rgba(255,255,255,0.05)] border-r border-white/10">
         {/* Top: New Chat */}
         <div className="p-2">
           {/* TASK 3: New chat clears activeThread instead of creating thread */}
@@ -67,10 +78,12 @@ export function Sidebar() {
           threads={threadListItems}
           activeThreadId={activeThread?.id || null}
           onSelect={handleThreadSelect}
+          onRename={handleRenameThread}
+          onDelete={handleDeleteThread}
         />
 
         {/* Bottom: Profile */}
-        <div className="p-2 border-t border-gray-200/70 dark:border-white/10">
+        <div className="p-2 border-t border-white/10">
           <ProfileMenu />
         </div>
       </aside>
@@ -83,12 +96,14 @@ export function Sidebar() {
         activeThreadId={activeThread?.id || null}
         onThreadSelect={handleThreadSelect}
         onNewChat={handleNewChat}
+        onRenameThread={handleRenameThread}
+        onDeleteThread={handleDeleteThread}
       />
 
       {/* Mobile Menu Button */}
       <button
         onClick={() => setIsMobileDrawerOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-30 p-2 rounded-lg bg-white dark:bg-[#40414F] shadow-md"
+        className="lg:hidden fixed top-4 left-4 z-30 p-2 rounded-lg bg-[rgba(255,255,255,0.05)] shadow-md"
         aria-label="Open sidebar"
       >
         <svg

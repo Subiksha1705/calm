@@ -33,6 +33,9 @@ interface ChatContextType {
   clearActiveThread: () => void;
   sendMessage: (content: string) => Promise<string>; // returns threadId
   regenerateLast: () => Promise<void>;
+
+  renameThread: (threadId: string, title: string) => Promise<void>;
+  deleteThread: (threadId: string) => Promise<void>;
 }
 
 const ChatContext = createContext<ChatContextType | null>(null);
@@ -68,6 +71,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         id: t.thread_id,
         createdAt: t.created_at,
         updatedAt: t.last_updated,
+        title: t.title,
         preview: t.preview,
       }));
       setThreadListItems(items);
@@ -175,6 +179,27 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     void refreshThreads();
   }, [userId, activeThreadId, refreshThreads]);
 
+  const renameThread = useCallback(
+    async (threadId: string, title: string) => {
+      if (!userId) return;
+      await api.renameThread(threadId, title);
+      setThreadListItems((prev) => prev.map((t) => (t.id === threadId ? { ...t, title } : t)));
+    },
+    [userId]
+  );
+
+  const deleteThread = useCallback(
+    async (threadId: string) => {
+      if (!userId) return;
+      await api.deleteThread(threadId);
+      setThreadListItems((prev) => prev.filter((t) => t.id !== threadId));
+      if (activeThreadId === threadId) {
+        clearActiveThread();
+      }
+    },
+    [userId, activeThreadId, clearActiveThread]
+  );
+
   const activeThread = useMemo<Thread | null>(() => {
     if (!activeThreadId) return null;
     const meta = activeThreadMeta || { id: activeThreadId, createdAt: '', updatedAt: '' };
@@ -194,6 +219,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         clearActiveThread,
         sendMessage,
         regenerateLast,
+        renameThread,
+        deleteThread,
       }}
     >
       {children}

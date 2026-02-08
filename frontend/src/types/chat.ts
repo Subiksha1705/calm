@@ -44,6 +44,8 @@ export interface Thread {
 export interface ThreadListItem {
   /** Unique thread identifier */
   id: string;
+  /** Short title (2–3 words) */
+  title?: string;
   /** Preview of the last message (truncated) */
   preview: string;
   /** ISO 8601 timestamp when thread was created */

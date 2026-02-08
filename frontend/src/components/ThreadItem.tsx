@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import type { ThreadListItem } from '@/types/chat';
 
 
@@ -18,25 +19,136 @@ interface ThreadItemProps {
   thread: ThreadListItem;
   isActive?: boolean;
   onClick?: () => void;
+  onRename?: (threadId: string, title: string) => void;
+  onDelete?: (threadId: string) => void;
 }
 
-export function ThreadItem({ thread, isActive = false, onClick }: ThreadItemProps) {
-  // Format the thread title from preview or generate one
-  const title = thread.preview 
-    ? thread.preview.slice(0, 40) + (thread.preview.length > 40 ? '...' : '')
-    : 'New Chat';
+function summarizeTitle(text: string): string {
+  const cleaned = text
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]+/gu, '')
+    .trim();
+  if (!cleaned) return 'New chat';
+  const words = cleaned.split(/\s+/).slice(0, 3);
+  return words.join(' ');
+}
+
+export function ThreadItem({ thread, isActive = false, onClick, onRename, onDelete }: ThreadItemProps) {
+  const title = summarizeTitle(thread.title || thread.preview || 'New chat');
+
+  const rootRef = useRef<HTMLButtonElement | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [isEditing]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = rootRef.current;
+      if (!el) return;
+      if (e.target instanceof Node && el.contains(e.target)) return;
+      setMenuOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    return () => window.removeEventListener('mousedown', onDown);
+  }, [menuOpen]);
 
   return (
     <button
-      onClick={onClick}
-      className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
+      ref={rootRef}
+      onClick={() => {
+        setMenuOpen(false);
+        onClick?.();
+      }}
+      className={`group relative w-full text-left px-3 py-2 rounded-lg transition-colors ${
         isActive
           ? 'bg-gray-100 dark:bg-white/10'
           : 'hover:bg-gray-50 dark:hover:bg-white/10'
       }`}
     >
-      <div className="text-sm text-gray-900 dark:text-gray-100 truncate">
-        {title}
+      {isEditing ? (
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              setIsEditing(false);
+              setDraft(title);
+              return;
+            }
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              const nextTitle = draft.trim();
+              if (nextTitle && onRename) onRename(thread.id, nextTitle);
+              setIsEditing(false);
+              setMenuOpen(false);
+            }
+          }}
+          className="w-full bg-transparent text-sm text-gray-900 dark:text-gray-100 outline-none"
+        />
+      ) : (
+        <div className="text-sm text-gray-900 dark:text-gray-100 truncate pr-8">{title}</div>
+      )}
+
+      {/* Actions */}
+      <div className="absolute right-2 top-1/2 -translate-y-1/2">
+        <button
+          type="button"
+          aria-label="Thread actions"
+          onClick={(e) => {
+            e.stopPropagation();
+            setMenuOpen((v) => !v);
+          }}
+          className="h-7 w-7 rounded-md grid place-items-center text-gray-500 dark:text-white/60 hover:bg-gray-200/70 dark:hover:bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M6 12h.01M12 12h.01M18 12h.01"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+
+        {menuOpen ? (
+          <div
+            className="absolute right-0 mt-2 w-40 rounded-xl bg-white dark:bg-[#202123] border border-gray-200/70 dark:border-white/10 shadow-xl overflow-hidden z-20"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(title);
+                setIsEditing(true);
+                setMenuOpen(false);
+              }}
+              className="w-full text-left px-4 py-3 text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-white/10 transition-colors"
+            >
+              Rename
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                onDelete?.(thread.id);
+              }}
+              className="w-full text-left px-4 py-3 text-sm text-red-600 dark:text-red-400 hover:bg-gray-50 dark:hover:bg-white/10 transition-colors"
+            >
+              Delete
+            </button>
+          </div>
+        ) : null}
       </div>
     </button>
   );
