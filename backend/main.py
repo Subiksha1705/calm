@@ -28,6 +28,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 import os
 import logging
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -102,7 +103,23 @@ app = FastAPI(
 )
 
 # CORS (required for browser-based frontend)
-cors_origins = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000").split(",")
+cors_allow_origins = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
+if cors_allow_origins:
+    cors_origins = [origin.strip() for origin in cors_allow_origins.split(",") if origin.strip()]
+else:
+    api_base_url = os.getenv("NEXT_PUBLIC_API_BASE_URL", "").strip()
+    if not api_base_url:
+        raise RuntimeError(
+            "CORS origin is not configured. Set CORS_ALLOW_ORIGINS or NEXT_PUBLIC_API_BASE_URL."
+        )
+    parsed_api_base = urlparse(api_base_url)
+    if not (parsed_api_base.scheme and parsed_api_base.netloc):
+        raise RuntimeError(
+            "NEXT_PUBLIC_API_BASE_URL is invalid. Expected absolute URL, e.g. https://example.com/api."
+        )
+    api_origin = f"{parsed_api_base.scheme}://{parsed_api_base.netloc}"
+    cors_origins = [api_origin]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
