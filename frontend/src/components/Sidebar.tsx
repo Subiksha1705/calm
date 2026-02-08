@@ -6,6 +6,7 @@ import { NewChatButton } from './NewChatButton';
 import { ThreadList } from './ThreadList';
 import { MobileSidebarDrawer } from './MobileSidebarDrawer';
 import { useChat } from '@/contexts/ChatContext';
+import { ProfileMenu } from '@/components/ProfileMenu';
 
 
 /**
@@ -29,9 +30,6 @@ export function Sidebar() {
   const router = useRouter();
   const { threadListItems, activeThread, selectThread, clearActiveThread } = useChat();
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
-
-  // TODO: Replace with real auth/user profile once available
-  const userDisplayName = 'User';
 
   // Handle new chat - clear active thread and navigate to /chat
   const handleNewChat = () => {
@@ -73,23 +71,7 @@ export function Sidebar() {
 
         {/* Bottom: Profile */}
         <div className="p-2 border-t border-gray-200/70 dark:border-white/10">
-          <button
-            type="button"
-            className="w-full flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
-            aria-label="Open profile"
-          >
-            <div className="h-9 w-9 rounded-full bg-gray-200 dark:bg-white/10 flex items-center justify-center text-xs font-semibold text-gray-700 dark:text-gray-100">
-              {userDisplayName.slice(0, 1).toUpperCase()}
-            </div>
-            <div className="min-w-0 flex-1 text-left">
-              <div className="truncate text-sm text-gray-900 dark:text-gray-100">
-                {userDisplayName}
-              </div>
-              <div className="truncate text-xs text-gray-500 dark:text-white/50">
-                Free
-              </div>
-            </div>
-          </button>
+          <ProfileMenu />
         </div>
       </aside>
 
@@ -101,7 +83,6 @@ export function Sidebar() {
         activeThreadId={activeThread?.id || null}
         onThreadSelect={handleThreadSelect}
         onNewChat={handleNewChat}
-        userDisplayName={userDisplayName}
       />
 
       {/* Mobile Menu Button */}

@@ -8,6 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendDir = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(frontendDir, '..');
 const backendDir = path.join(repoRoot, 'backend');
+const frontendEnvPath = path.join(frontendDir, '.env');
 
 function loadEnvFile(filePath) {
   if (!existsSync(filePath)) return {};
@@ -35,6 +36,9 @@ const backendEnvPath = path.join(backendDir, '.env');
 const backendEnv = loadEnvFile(backendEnvPath);
 const mergedBackendEnv = { ...process.env, ...backendEnv };
 
+const frontendEnv = loadEnvFile(frontendEnvPath);
+const mergedFrontendEnv = { ...process.env, ...frontendEnv };
+
 const backendHost = mergedBackendEnv.BACKEND_HOST || '127.0.0.1';
 const backendPort = mergedBackendEnv.BACKEND_PORT || '8000';
 const python = mergedBackendEnv.BACKEND_PYTHON || 'python';
@@ -58,7 +62,7 @@ function startBackend() {
 }
 
 function startFrontend() {
-  const child = spawn(npmCmd, ['run', 'dev'], { cwd: frontendDir, stdio: 'inherit', env: process.env });
+  const child = spawn(npmCmd, ['run', 'dev'], { cwd: frontendDir, stdio: 'inherit', env: mergedFrontendEnv });
   children.push(child);
   child.on('exit', (code) => {
     if (code && code !== 0) {
@@ -81,6 +85,6 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 console.log(`[dev:all] Backend: ${backendHost}:${backendPort} (${backendEnvPath})`);
+console.log(`[dev:all] Frontend env: ${frontendEnvPath}`);
 startBackend();
 startFrontend();
-

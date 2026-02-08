@@ -5,7 +5,7 @@ This module defines the data models for chat messages and responses.
 """
 
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Optional
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -56,7 +56,7 @@ class ChatRequest(BaseModel):
         thread_id: ID of the thread to add the message to
         message: The message content
     """
-    user_id: str = Field(description="ID of the user sending the message")
+    user_id: Optional[str] = Field(default=None, description="ID of the user sending the message (deprecated when using auth)")
     thread_id: str = Field(description="ID of the thread to add the message to")
     message: str = Field(description="The message content to send")
 
@@ -76,7 +76,7 @@ class StartChatRequest(BaseModel):
     This avoids a separate /threads call, improving latency for new chats.
     """
 
-    user_id: str = Field(description="ID of the user starting the chat")
+    user_id: Optional[str] = Field(default=None, description="ID of the user starting the chat (deprecated when using auth)")
     message: str = Field(description="The first message content to send")
 
 
@@ -95,7 +95,7 @@ class RegenerateRequest(BaseModel):
         thread_id: ID of the thread to regenerate the latest assistant message for
     """
 
-    user_id: str = Field(description="ID of the user requesting regeneration")
+    user_id: Optional[str] = Field(default=None, description="ID of the user requesting regeneration (deprecated when using auth)")
     thread_id: str = Field(description="ID of the thread")
 
 

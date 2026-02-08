@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback, type ReactNode } from 'react';
 import type { Message, Thread, ThreadListItem } from '@/types/chat';
 import { ApiError, api } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 
 /**
@@ -15,28 +16,6 @@ import { ApiError, api } from '@/lib/api';
  * - load thread messages
  * - send messages / regenerate last response
  */
-
-const USER_ID_STORAGE_KEY = 'calm_sphere_user_id';
-
-function createRandomUserId() {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return `user_${crypto.randomUUID()}`;
-  }
-  return `user_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-}
-
-function getOrCreateUserId() {
-  try {
-    const existing = localStorage.getItem(USER_ID_STORAGE_KEY);
-    if (existing) return existing;
-    const created = createRandomUserId();
-    localStorage.setItem(USER_ID_STORAGE_KEY, created);
-    return created;
-  } catch {
-    // localStorage may be unavailable (privacy mode, SSR)
-    return createRandomUserId();
-  }
-}
 
 interface ChatContextType {
   // Thread list items for sidebar display
@@ -67,6 +46,7 @@ const ChatContext = createContext<ChatContextType | null>(null);
  * @param children - Child components to wrap
  */
 export function ChatProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [userId, setUserId] = useState<string | null>(null);
   const [threadListItems, setThreadListItems] = useState<ThreadListItem[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -75,16 +55,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [isThreadsLoading, setIsThreadsLoading] = useState(false);
   const [isThreadLoading, setIsThreadLoading] = useState(false);
 
-  // Initialize stable per-browser user id (no hardcoding)
   useEffect(() => {
-    setUserId(getOrCreateUserId());
-  }, []);
+    setUserId(user?.uid || null);
+  }, [user?.uid]);
 
   const refreshThreads = useCallback(async () => {
     if (!userId) return;
     setIsThreadsLoading(true);
     try {
-      const res = await api.listThreads(userId);
+      const res = await api.listThreads();
       const items: ThreadListItem[] = res.threads.map((t) => ({
         id: t.thread_id,
         createdAt: t.created_at,
@@ -112,7 +91,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setIsThreadLoading(true);
     setActiveThreadId(threadId);
     try {
-      const res = await api.getThreadMessages(userId, threadId);
+      const res = await api.getThreadMessages(threadId);
       setActiveMessages(
         res.messages.map((m) => ({
           role: m.role,
@@ -153,7 +132,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     let threadId = activeThreadId;
     if (!threadId) {
-      const started = await api.startChat(userId, content);
+      const started = await api.startChat(content);
       threadId = started.thread_id;
       setActiveThreadId(threadId);
       setActiveThreadMeta({ id: threadId, createdAt: '', updatedAt: '' });
@@ -167,7 +146,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString();
       setActiveMessages((prev) => [...prev, { role: 'user', content, timestamp: now }]);
 
-      const res = await api.sendMessage(userId, threadId, content);
+      const res = await api.sendMessage(threadId, content);
       const assistantNow = new Date().toISOString();
       setActiveMessages((prev) => [...prev, { role: 'assistant', content: res.reply, timestamp: assistantNow }]);
     }
@@ -179,7 +158,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const regenerateLast = useCallback(async () => {
     if (!userId || !activeThreadId) return;
 
-    const res = await api.regenerate(userId, activeThreadId);
+    const res = await api.regenerate(activeThreadId);
     const now = new Date().toISOString();
 
     setActiveMessages((prev) => {

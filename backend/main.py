@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 from api.health import router as health_router
 from api.threads import router as threads_router
 from api.chat import router as chat_router
+from api.auth import router as auth_router
 from core.storage import conversation_store, init_conversation_store_from_env
 from core.llm import llm_service
 
@@ -109,6 +110,7 @@ app.add_middleware(
 
 # Include API routers
 app.include_router(health_router)
+app.include_router(auth_router, prefix="/api")
 app.include_router(threads_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 
