@@ -7,8 +7,7 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export default function AuthPage() {
   const router = useRouter();
-  const { user, isLoading, signInWithGoogle, getSignInMethods, signUpWithEmailPassword, loginWithEmailPassword } =
-    useAuth();
+  const { user, isLoading, signInWithGoogle, sendEmailLink } = useAuth();
 
   const nextPath = useMemo(() => {
     if (typeof window === 'undefined') return '/chat';
@@ -29,12 +28,10 @@ export default function AuthPage() {
     }
   }, []);
 
-  const [step, setStep] = useState<'email' | 'login' | 'signup'>('email');
   const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
-  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
 
   const title = useMemo(() => (mode === 'signup' ? 'Log in or sign up' : 'Log in or sign up'), [mode]);
 
@@ -103,126 +100,33 @@ export default function AuthPage() {
               className="w-full bg-transparent text-sm outline-none placeholder:text-white/40"
             />
           </div>
-          {step === 'email' ? (
-            <button
-              type="button"
-              disabled={!email || busy}
-              onClick={async () => {
-                setError(null);
-                setBusy(true);
-                try {
-                  const methods = await getSignInMethods(email);
-                  if (methods.includes('password')) setStep('login');
-                  else setStep('signup');
-                } catch (e: unknown) {
-                  setError(e instanceof Error ? e.message : 'Something went wrong');
-                } finally {
-                  setBusy(false);
-                }
-              }}
-              className="w-full rounded-full bg-white text-black px-5 py-3 text-sm font-semibold hover:bg-white/90 disabled:opacity-50 transition-colors"
-            >
-              Continue
-            </button>
-          ) : null}
-
-          {step === 'login' ? (
-            <>
-              <div className="rounded-full border border-white/15 bg-black/30 px-5 py-3">
-                <input
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  type="password"
-                  placeholder="Password"
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-white/40"
-                />
-              </div>
-              <button
-                type="button"
-                disabled={!password || busy}
-                onClick={async () => {
-                  setError(null);
-                  setBusy(true);
-                  try {
-                    await loginWithEmailPassword({ email, password });
-                    router.replace(nextPath);
-                  } catch (e: unknown) {
-                    setError(e instanceof Error ? e.message : 'Login failed');
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-                className="w-full rounded-full bg-white text-black px-5 py-3 text-sm font-semibold hover:bg-white/90 disabled:opacity-50 transition-colors"
-              >
-                Log in
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setStep('email');
-                  setPassword('');
-                  setError(null);
-                }}
-                className="w-full rounded-full bg-white/10 border border-white/10 px-5 py-3 text-sm font-semibold text-white hover:bg-white/15 transition-colors"
-              >
-                Back
-              </button>
-            </>
-          ) : null}
-
-          {step === 'signup' ? (
-            <>
-              <div className="rounded-full border border-white/15 bg-black/30 px-5 py-3">
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  type="text"
-                  placeholder="Name"
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-white/40"
-                />
-              </div>
-              <div className="rounded-full border border-white/15 bg-black/30 px-5 py-3">
-                <input
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  type="password"
-                  placeholder="Password"
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-white/40"
-                />
-              </div>
-              <button
-                type="button"
-                disabled={!name || !password || busy}
-                onClick={async () => {
-                  setError(null);
-                  setBusy(true);
-                  try {
-                    await signUpWithEmailPassword({ email, password, name });
-                    router.replace(nextPath);
-                  } catch (e: unknown) {
-                    setError(e instanceof Error ? e.message : 'Sign up failed');
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-                className="w-full rounded-full bg-white text-black px-5 py-3 text-sm font-semibold hover:bg-white/90 disabled:opacity-50 transition-colors"
-              >
-                Sign up
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setStep('email');
-                  setName('');
-                  setPassword('');
-                  setError(null);
-                }}
-                className="w-full rounded-full bg-white/10 border border-white/10 px-5 py-3 text-sm font-semibold text-white hover:bg-white/15 transition-colors"
-              >
-                Back
-              </button>
-            </>
-          ) : null}
+          <button
+            type="button"
+            disabled={!email || busy}
+            onClick={async () => {
+              setError(null);
+              setSent(false);
+              setBusy(true);
+              try {
+                await sendEmailLink(email, nextPath);
+                setSent(true);
+              } catch (e: unknown) {
+                setError(e instanceof Error ? e.message : 'Failed to send sign-in link');
+              } finally {
+                setBusy(false);
+              }
+            }}
+            className="w-full rounded-full bg-white text-black px-5 py-3 text-sm font-semibold hover:bg-white/90 disabled:opacity-50 transition-colors"
+          >
+            Continue
+          </button>
+          {sent ? (
+            <div className="text-xs text-white/60 text-center">
+              Check your email for a sign-in link.
+            </div>
+          ) : (
+            <div className="text-xs text-white/60 text-center">We’ll email you a sign-in link.</div>
+          )}
         </div>
 
         {error ? <div className="mt-5 text-xs text-red-400 text-center">{error}</div> : null}

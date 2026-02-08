@@ -2,26 +2,28 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  createUserWithEmailAndPassword,
-  fetchSignInMethodsForEmail,
   onIdTokenChanged,
-  signInWithEmailAndPassword,
+  sendSignInLinkToEmail,
+  signInWithEmailLink,
+  isSignInWithEmailLink,
   signInWithPopup,
   signOut,
-  updateProfile,
   type User,
 } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db, googleProvider } from '@/lib/firebase';
 import { setAuthToken } from '@/lib/authToken';
 
+const PENDING_EMAIL_KEY = 'calm_sphere_pending_email';
+
 type AuthContextValue = {
   user: User | null;
   isLoading: boolean;
   signInWithGoogle: () => Promise<void>;
-  getSignInMethods: (email: string) => Promise<string[]>;
-  signUpWithEmailPassword: (args: { email: string; password: string; name?: string }) => Promise<void>;
-  loginWithEmailPassword: (args: { email: string; password: string }) => Promise<void>;
+  sendEmailLink: (email: string, nextPath?: string) => Promise<void>;
+  completeEmailLinkSignIn: (email: string, href: string) => Promise<void>;
+  isEmailLink: (href: string) => boolean;
+  getPendingEmail: () => string | null;
   logout: () => Promise<void>;
 };
 
@@ -74,22 +76,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthToken(idToken);
   }, []);
 
-  const getSignInMethods = useCallback(async (email: string) => {
-    return fetchSignInMethodsForEmail(auth, email);
+  const sendEmailLink = useCallback(async (email: string, nextPath?: string) => {
+    const url = `${window.location.origin}/auth/callback${nextPath ? `?next=${encodeURIComponent(nextPath)}` : ''}`;
+    await sendSignInLinkToEmail(auth, email, { url, handleCodeInApp: true });
+    window.localStorage.setItem(PENDING_EMAIL_KEY, email);
   }, []);
 
-  const signUpWithEmailPassword = useCallback(async ({ email, password, name }: { email: string; password: string; name?: string }) => {
-    const res = await createUserWithEmailAndPassword(auth, email, password);
-    if (name) {
-      await updateProfile(res.user, { displayName: name });
-    }
-    const idToken = await res.user.getIdToken();
-    setAuthToken(idToken);
-    await ensureUserDoc(res.user);
-  }, []);
-
-  const loginWithEmailPassword = useCallback(async ({ email, password }: { email: string; password: string }) => {
-    const res = await signInWithEmailAndPassword(auth, email, password);
+  const completeEmailLinkSignIn = useCallback(async (email: string, href: string) => {
+    const res = await signInWithEmailLink(auth, email, href);
+    window.localStorage.removeItem(PENDING_EMAIL_KEY);
     const idToken = await res.user.getIdToken();
     setAuthToken(idToken);
     await ensureUserDoc(res.user);
@@ -105,12 +100,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       isLoading,
       signInWithGoogle,
-      getSignInMethods,
-      signUpWithEmailPassword,
-      loginWithEmailPassword,
+      sendEmailLink,
+      completeEmailLinkSignIn,
+      isEmailLink: (href) => isSignInWithEmailLink(auth, href),
+      getPendingEmail: () => {
+        try {
+          return window.localStorage.getItem(PENDING_EMAIL_KEY);
+        } catch {
+          return null;
+        }
+      },
       logout,
     }),
-    [user, isLoading, signInWithGoogle, getSignInMethods, signUpWithEmailPassword, loginWithEmailPassword, logout]
+    [user, isLoading, signInWithGoogle, sendEmailLink, completeEmailLinkSignIn, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
