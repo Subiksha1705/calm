@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 
+type CallbackView =
+  | { status: 'loading'; error: null }
+  | { status: 'error'; error: string }
+  | { status: 'needs_email'; error: string | null };
+
 export default function AuthCallbackPage() {
   const router = useRouter();
   const { completeEmailLinkSignIn, getPendingEmail, isEmailLink } = useAuth();
@@ -18,15 +23,15 @@ export default function AuthCallbackPage() {
   }, []);
 
   const initialView = useMemo(() => {
-    if (typeof window === 'undefined') return { status: 'loading' as const, error: null as string | null };
+    if (typeof window === 'undefined') return { status: 'loading' as const, error: null } satisfies CallbackView;
     const href = window.location.href;
-    if (!isEmailLink(href)) return { status: 'error' as const, error: 'Invalid sign-in link.' };
+    if (!isEmailLink(href)) return { status: 'error' as const, error: 'Invalid sign-in link.' } satisfies CallbackView;
     const pending = getPendingEmail();
-    if (pending) return { status: 'loading' as const, error: null };
-    return { status: 'needs_email' as const, error: null };
+    if (pending) return { status: 'loading' as const, error: null } satisfies CallbackView;
+    return { status: 'needs_email' as const, error: null } satisfies CallbackView;
   }, [getPendingEmail, isEmailLink]);
 
-  const [{ status, error }, setView] = useState(initialView);
+  const [{ status, error }, setView] = useState<CallbackView>(initialView);
   const [email, setEmail] = useState('');
 
   useEffect(() => {
