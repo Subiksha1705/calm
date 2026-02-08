@@ -104,7 +104,6 @@ debug.log
 
 # Firebase
 backend/firebase_key.json
-backend/core/firebase_storage.py
 
 # Documentation
 *.pdf

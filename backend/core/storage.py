@@ -321,21 +321,12 @@ conversation_store = ConversationStoreProxy(InMemoryConversationStore())
 
 
 def init_conversation_store_from_env() -> str:
-    """Initialize the global conversation store based on env vars.
+    """Initialize the global conversation store.
 
-    Returns:
-        A short identifier of the selected backend ("firebase" or "memory").
+    TEMPORARY (deployment unblock): force in-memory storage regardless of env vars.
     """
-    use_firebase = os.getenv("USE_FIREBASE", "false").lower() == "true"
-    if not use_firebase:
-        conversation_store.set_store(InMemoryConversationStore())
-        return "memory"
-
-    # Import lazily so dev installs don't need firebase-admin.
-    from core.firebase_storage import FirebaseConversationStore
-
-    conversation_store.set_store(FirebaseConversationStore())
-    return "firebase"
+    conversation_store.set_store(InMemoryConversationStore())
+    return "memory"
 
 
 __all__ = [
