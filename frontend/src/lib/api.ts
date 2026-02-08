@@ -6,13 +6,22 @@ export class ApiError extends Error {
 }
 
 // API client for chat backend
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, '');
+
+if (!API_BASE_URL) {
+  throw new Error('NEXT_PUBLIC_API_BASE_URL is not defined');
+}
+
+function buildApiUrl(endpoint: string): string {
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return `${API_BASE_URL}${normalizedEndpoint}`;
+}
 
 async function fetchApi<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
+  const response = await fetch(buildApiUrl(endpoint), {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -68,36 +77,36 @@ interface RegenerateResponse {
 }
 
 export const api = {
-  listThreads: () => fetchApi<ListThreadsResponse>('/api/threads'),
+  listThreads: () => fetchApi<ListThreadsResponse>('/threads'),
   
   getThreadMessages: (threadId: string) =>
-    fetchApi<GetThreadMessagesResponse>(`/api/threads/${threadId}`),
+    fetchApi<GetThreadMessagesResponse>(`/threads/${threadId}`),
   
   startChat: (content: string) =>
-    fetchApi<StartChatResponse>('/api/chat', {
+    fetchApi<StartChatResponse>('/chat', {
       method: 'POST',
       body: JSON.stringify({ message: content }),
     }),
   
   sendMessage: (threadId: string, content: string) =>
-    fetchApi<SendMessageResponse>(`/api/chat/${threadId}`, {
+    fetchApi<SendMessageResponse>(`/chat/${threadId}`, {
       method: 'POST',
       body: JSON.stringify({ message: content }),
     }),
   
   regenerate: (threadId: string) =>
-    fetchApi<RegenerateResponse>(`/api/chat/${threadId}/regenerate`, {
+    fetchApi<RegenerateResponse>(`/chat/${threadId}/regenerate`, {
       method: 'POST',
     }),
   
   renameThread: (threadId: string, title: string) =>
-    fetchApi<void>(`/api/threads/${threadId}`, {
+    fetchApi<void>(`/threads/${threadId}`, {
       method: 'PATCH',
       body: JSON.stringify({ title }),
     }),
   
   deleteThread: (threadId: string) =>
-    fetchApi<void>(`/api/threads/${threadId}`, {
+    fetchApi<void>(`/threads/${threadId}`, {
       method: 'DELETE',
     }),
 };
