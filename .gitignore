@@ -51,6 +51,8 @@ frontend/yarn-debug.log*
 frontend/yarn-error.log*
 frontend/pnpm-debug.log*
 frontend/.pnpm-store/
+frontend/package-lock.json
+frontend/pnpm-lock.yaml
 
 # OS
 .DS_Store
