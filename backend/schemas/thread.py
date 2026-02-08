@@ -9,6 +9,7 @@ from typing import List
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+from typing import Optional
 
 # Import Message directly to avoid forward reference issues
 from schemas.chat import Message
@@ -16,7 +17,7 @@ from schemas.chat import Message
 
 class CreateThreadRequest(BaseModel):
     """Request body for creating a new thread."""
-    user_id: str = Field(description="ID of the user creating the thread")
+    user_id: Optional[str] = Field(default=None, description="ID of the user creating the thread (deprecated when using auth)")
 
 
 class CreateThreadResponse(BaseModel):
