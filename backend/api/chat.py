@@ -12,14 +12,16 @@ Processing flow:
 5. Return reply
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Optional, Union
 
-from schemas.chat import ChatRequest, ChatResponse, RegenerateRequest, StartChatRequest, StartChatResponse
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from schemas.chat import ChatResponse, RegenerateRequest, StartChatRequest, StartChatResponse
 from core.storage import conversation_store
 from core.llm import llm_service
 from uuid import uuid4
 from core.auth import AuthenticatedUser, get_optional_user
-from typing import Optional
 
 
 router = APIRouter(
@@ -28,34 +30,44 @@ router = APIRouter(
 )
 
 
-@router.post("/start", response_model=StartChatResponse)
-def start_chat(
-    request: StartChatRequest,
-    user: Optional[AuthenticatedUser] = Depends(get_optional_user),
-) -> StartChatResponse:
-    """Create a thread, persist the first exchange, and return the reply.
+class UnifiedChatRequest(BaseModel):
+    user_id: Optional[str] = Field(default=None)
+    thread_id: Optional[str] = Field(default=None)
+    message: str
 
-    This avoids an extra round-trip to /threads for new chats.
-    """
-    user_id = user.uid if user else request.user_id
+
+class LegacyThreadMessageRequest(BaseModel):
+    user_id: Optional[str] = Field(default=None)
+    message: str
+
+
+class LegacyRegenerateRequest(BaseModel):
+    user_id: Optional[str] = Field(default=None)
+
+
+def _resolve_user_id(*, user: Optional[AuthenticatedUser], provided_user_id: Optional[str]) -> str:
+    user_id = user.uid if user else provided_user_id
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
-    if user and request.user_id and request.user_id != user.uid:
+    if user and provided_user_id and provided_user_id != user.uid:
         raise HTTPException(status_code=403, detail="user_id does not match authenticated user")
+    return user_id
 
+
+def _start_chat_impl(*, user_id: str, message: str) -> StartChatResponse:
     thread_id = str(uuid4())
     reply = llm_service.generate_response(
         user_id=user_id,
         thread_id=thread_id,
-        user_message=request.message,
+        user_message=message,
     )
 
     try:
         if hasattr(conversation_store, "start_thread_with_exchange"):
-            res = conversation_store.start_thread_with_exchange(
+            conversation_store.start_thread_with_exchange(
                 user_id=user_id,
                 thread_id=thread_id,
-                user_content=request.message,
+                user_content=message,
                 assistant_content=reply,
             )
         else:
@@ -65,14 +77,14 @@ def start_chat(
                 conversation_store.add_exchange(
                     user_id=user_id,
                     thread_id=thread_id,
-                    user_content=request.message,
+                    user_content=message,
                     assistant_content=reply,
                 )
             else:
                 conversation_store.add_user_message(
                     user_id=user_id,
                     thread_id=thread_id,
-                    content=request.message,
+                    content=message,
                 )
                 conversation_store.add_assistant_message(
                     user_id=user_id,
@@ -85,11 +97,86 @@ def start_chat(
     return StartChatResponse(thread_id=thread_id, reply=reply)
 
 
-@router.post("", response_model=ChatResponse)
-def send_message(
-    request: ChatRequest,
+def _send_message_impl(*, user_id: str, thread_id: str, message: str) -> ChatResponse:
+    reply = llm_service.generate_response(
+        user_id=user_id,
+        thread_id=thread_id,
+        user_message=message
+    )
+
+    try:
+        if hasattr(conversation_store, "add_exchange"):
+            conversation_store.add_exchange(
+                user_id=user_id,
+                thread_id=thread_id,
+                user_content=message,
+                assistant_content=reply,
+            )
+        else:
+            conversation_store.add_user_message(
+                user_id=user_id,
+                thread_id=thread_id,
+                content=message,
+            )
+            conversation_store.add_assistant_message(
+                user_id=user_id,
+                thread_id=thread_id,
+                content=reply,
+            )
+    except Exception:
+        # Treat missing thread as 404 (Firestore update() fails if doc missing).
+        raise HTTPException(
+            status_code=404,
+            detail=f"Thread '{thread_id}' not found for user '{user_id}'",
+        )
+
+    return ChatResponse(reply=reply)
+
+
+def _regenerate_impl(*, user_id: str, thread_id: str) -> ChatResponse:
+    last_user_message = conversation_store.get_last_user_message(user_id, thread_id)
+    if not last_user_message:
+        raise HTTPException(status_code=400, detail="No user message found to regenerate from")
+
+    reply = llm_service.generate_response(
+        user_id=user_id,
+        thread_id=thread_id,
+        user_message=last_user_message,
+    )
+
+    replaced = conversation_store.replace_last_assistant_message(
+        user_id=user_id,
+        thread_id=thread_id,
+        content=reply,
+    )
+    if not replaced:
+        conversation_store.add_assistant_message(
+            user_id=user_id,
+            thread_id=thread_id,
+            content=reply,
+        )
+
+    return ChatResponse(reply=reply)
+
+
+@router.post("/start", response_model=StartChatResponse)
+def start_chat(
+    request: StartChatRequest,
     user: Optional[AuthenticatedUser] = Depends(get_optional_user),
-) -> ChatResponse:
+) -> StartChatResponse:
+    """Create a thread, persist the first exchange, and return the reply.
+
+    This avoids an extra round-trip to /threads for new chats.
+    """
+    user_id = _resolve_user_id(user=user, provided_user_id=request.user_id)
+    return _start_chat_impl(user_id=user_id, message=request.message)
+
+
+@router.post("", response_model=Union[ChatResponse, StartChatResponse])
+def chat(
+    request: UnifiedChatRequest,
+    user: Optional[AuthenticatedUser] = Depends(get_optional_user),
+) -> Union[ChatResponse, StartChatResponse]:
     """Send a message to a conversation thread and receive a response.
     
     This endpoint:
@@ -108,46 +195,10 @@ def send_message(
     Raises:
         HTTPException: If thread doesn't exist or other errors occur
     """
-    user_id = user.uid if user else request.user_id
-    if not user_id:
-        raise HTTPException(status_code=400, detail="user_id is required")
-    if user and request.user_id and request.user_id != user.uid:
-        raise HTTPException(status_code=403, detail="user_id does not match authenticated user")
-
-    # Generate response
-    reply = llm_service.generate_response(
-        user_id=user_id,
-        thread_id=request.thread_id,
-        user_message=request.message
-    )
-
-    try:
-        if hasattr(conversation_store, "add_exchange"):
-            conversation_store.add_exchange(
-                user_id=user_id,
-                thread_id=request.thread_id,
-                user_content=request.message,
-                assistant_content=reply,
-            )
-        else:
-            conversation_store.add_user_message(
-                user_id=user_id,
-                thread_id=request.thread_id,
-                content=request.message,
-            )
-            conversation_store.add_assistant_message(
-                user_id=user_id,
-                thread_id=request.thread_id,
-                content=reply,
-            )
-    except Exception:
-        # Treat missing thread as 404 (Firestore update() fails if doc missing).
-        raise HTTPException(
-            status_code=404,
-            detail=f"Thread '{request.thread_id}' not found for user '{user_id}'",
-        )
-    
-    return ChatResponse(reply=reply)
+    user_id = _resolve_user_id(user=user, provided_user_id=request.user_id)
+    if request.thread_id:
+        return _send_message_impl(user_id=user_id, thread_id=request.thread_id, message=request.message)
+    return _start_chat_impl(user_id=user_id, message=request.message)
 
 
 @router.post("/regenerate", response_model=ChatResponse)
@@ -163,35 +214,28 @@ def regenerate_last_response(
     3. Generates a new assistant reply
     4. Replaces the last assistant message (if present), otherwise appends it
     """
-    user_id = user.uid if user else request.user_id
-    if not user_id:
-        raise HTTPException(status_code=400, detail="user_id is required")
-    if user and request.user_id and request.user_id != user.uid:
-        raise HTTPException(status_code=403, detail="user_id does not match authenticated user")
+    user_id = _resolve_user_id(user=user, provided_user_id=request.user_id)
+    return _regenerate_impl(user_id=user_id, thread_id=request.thread_id)
 
-    last_user_message = conversation_store.get_last_user_message(user_id, request.thread_id)
-    if not last_user_message:
-        raise HTTPException(status_code=400, detail="No user message found to regenerate from")
 
-    reply = llm_service.generate_response(
-        user_id=user_id,
-        thread_id=request.thread_id,
-        user_message=last_user_message,
-    )
+@router.post("/{thread_id}/regenerate", response_model=ChatResponse)
+def regenerate_last_response_legacy(
+    thread_id: str,
+    request: LegacyRegenerateRequest,
+    user: Optional[AuthenticatedUser] = Depends(get_optional_user),
+) -> ChatResponse:
+    user_id = _resolve_user_id(user=user, provided_user_id=request.user_id)
+    return _regenerate_impl(user_id=user_id, thread_id=thread_id)
 
-    replaced = conversation_store.replace_last_assistant_message(
-        user_id=user_id,
-        thread_id=request.thread_id,
-        content=reply,
-    )
-    if not replaced:
-        conversation_store.add_assistant_message(
-            user_id=user_id,
-            thread_id=request.thread_id,
-            content=reply,
-        )
 
-    return ChatResponse(reply=reply)
+@router.post("/{thread_id}", response_model=ChatResponse)
+def send_message_legacy(
+    thread_id: str,
+    request: LegacyThreadMessageRequest,
+    user: Optional[AuthenticatedUser] = Depends(get_optional_user),
+) -> ChatResponse:
+    user_id = _resolve_user_id(user=user, provided_user_id=request.user_id)
+    return _send_message_impl(user_id=user_id, thread_id=thread_id, message=request.message)
 
 
 __all__ = ["router"]

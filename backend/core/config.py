@@ -83,7 +83,7 @@ def get_settings() -> Settings:
     # Back-compat: `llm_model` historically meant the single model used for everything.
     llm_model = os.getenv("LLM_MODEL") or llm_model_response
 
-    llm_enable_emotion = _bool(os.getenv("LLM_ENABLE_EMOTION"), default=True)
+    llm_enable_emotion = _bool(os.getenv("LLM_ENABLE_EMOTION"), default=False)
     llm_enable_risk = _bool(os.getenv("LLM_ENABLE_RISK"), default=True)
 
     # Support multiple names used across docs/experiments.
@@ -93,9 +93,9 @@ def get_settings() -> Settings:
         or os.getenv("HF_API_KEY")
     )
     hugging_face_base_url = os.getenv("HUGGING_FACE_BASE_URL", "https://router.huggingface.co")
-    hugging_face_timeout_s = float(os.getenv("HUGGING_FACE_TIMEOUT_S", "30"))
-    hugging_face_max_attempts = int(os.getenv("HUGGING_FACE_MAX_ATTEMPTS", "3"))
-    hugging_face_backoff_factor = float(os.getenv("HUGGING_FACE_BACKOFF_FACTOR", "2"))
+    hugging_face_timeout_s = float(os.getenv("HUGGING_FACE_TIMEOUT_S", "12"))
+    hugging_face_max_attempts = int(os.getenv("HUGGING_FACE_MAX_ATTEMPTS", "2"))
+    hugging_face_backoff_factor = float(os.getenv("HUGGING_FACE_BACKOFF_FACTOR", "1.5"))
 
     return Settings(
         host=host,

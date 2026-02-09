@@ -17,21 +17,58 @@ function buildApiUrl(endpoint: string): string {
   return `${API_BASE_URL}${normalizedEndpoint}`;
 }
 
+function getAuthTokenFromCookie(): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(/(?:^|;\s*)auth_token=([^;]+)/);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+function withQuery(endpoint: string, query?: Record<string, string | undefined>): string {
+  if (!query) return endpoint;
+  const params = new URLSearchParams();
+  Object.entries(query).forEach(([k, v]) => {
+    if (v) params.set(k, v);
+  });
+  const qs = params.toString();
+  return qs ? `${endpoint}?${qs}` : endpoint;
+}
+
 async function fetchApi<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  query?: Record<string, string | undefined>
 ): Promise<T> {
-  const response = await fetch(buildApiUrl(endpoint), {
+  const token = getAuthTokenFromCookie();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> | undefined),
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(buildApiUrl(withQuery(endpoint, query)), {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
+    let message = `API request failed: ${response.statusText}`;
+    try {
+      const data = (await response.json()) as { detail?: string };
+      if (typeof data?.detail === 'string' && data.detail.trim()) {
+        message = data.detail;
+      }
+    } catch {
+      // Keep default message when body is not JSON.
+    }
     const error = new ApiError(
-      `API request failed: ${response.statusText}`,
+      message,
       response.status
     );
     throw error;
@@ -77,36 +114,37 @@ interface RegenerateResponse {
 }
 
 export const api = {
-  listThreads: () => fetchApi<ListThreadsResponse>('/threads'),
+  listThreads: (userId: string) => fetchApi<ListThreadsResponse>('/threads', {}, { user_id: userId }),
   
-  getThreadMessages: (threadId: string) =>
-    fetchApi<GetThreadMessagesResponse>(`/threads/${threadId}`),
+  getThreadMessages: (threadId: string, userId: string) =>
+    fetchApi<GetThreadMessagesResponse>(`/threads/${threadId}`, {}, { user_id: userId }),
   
-  startChat: (content: string) =>
-    fetchApi<StartChatResponse>('/chat', {
+  startChat: (content: string, userId: string) =>
+    fetchApi<StartChatResponse>('/chat/start', {
       method: 'POST',
-      body: JSON.stringify({ message: content }),
+      body: JSON.stringify({ user_id: userId, message: content }),
     }),
   
-  sendMessage: (threadId: string, content: string) =>
-    fetchApi<SendMessageResponse>(`/chat/${threadId}`, {
+  sendMessage: (threadId: string, content: string, userId: string) =>
+    fetchApi<SendMessageResponse>('/chat', {
       method: 'POST',
-      body: JSON.stringify({ message: content }),
+      body: JSON.stringify({ user_id: userId, thread_id: threadId, message: content }),
     }),
   
-  regenerate: (threadId: string) =>
-    fetchApi<RegenerateResponse>(`/chat/${threadId}/regenerate`, {
+  regenerate: (threadId: string, userId: string) =>
+    fetchApi<RegenerateResponse>('/chat/regenerate', {
       method: 'POST',
+      body: JSON.stringify({ user_id: userId, thread_id: threadId }),
     }),
   
-  renameThread: (threadId: string, title: string) =>
+  renameThread: (threadId: string, title: string, userId: string) =>
     fetchApi<void>(`/threads/${threadId}`, {
       method: 'PATCH',
       body: JSON.stringify({ title }),
-    }),
+    }, { user_id: userId }),
   
-  deleteThread: (threadId: string) =>
+  deleteThread: (threadId: string, userId: string) =>
     fetchApi<void>(`/threads/${threadId}`, {
       method: 'DELETE',
-    }),
+    }, { user_id: userId }),
 };

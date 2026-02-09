@@ -77,6 +77,20 @@ class LLMService:
         self._hugging_face_timeout_s = hugging_face_timeout_s
         self._hugging_face_max_attempts = hugging_face_max_attempts
         self._hugging_face_backoff_factor = hugging_face_backoff_factor
+        self._client: HuggingFaceInferenceClient | None = None
+        self._rebuild_client()
+
+    def _rebuild_client(self) -> None:
+        if not self._hugging_face_api_key:
+            self._client = None
+            return
+        self._client = HuggingFaceInferenceClient(
+            self._hugging_face_api_key,
+            base_url=self._hugging_face_base_url,
+            timeout_s=self._hugging_face_timeout_s,
+            max_attempts=self._hugging_face_max_attempts,
+            backoff_factor=self._hugging_face_backoff_factor,
+        )
 
     def set_store(self, store: Any) -> None:
         self._store = store
@@ -121,6 +135,7 @@ class LLMService:
             self._hugging_face_max_attempts = hugging_face_max_attempts
         if hugging_face_backoff_factor is not None:
             self._hugging_face_backoff_factor = hugging_face_backoff_factor
+        self._rebuild_client()
     
     def generate_response(
         self, 
@@ -189,13 +204,11 @@ class LLMService:
                 "Hugging Face API key not configured. Set HUGGING_FACE_API_KEY (or HF_API_TOKEN)."
             )
 
-        client = HuggingFaceInferenceClient(
-            self._hugging_face_api_key,
-            base_url=self._hugging_face_base_url,
-            timeout_s=self._hugging_face_timeout_s,
-            max_attempts=self._hugging_face_max_attempts,
-            backoff_factor=self._hugging_face_backoff_factor,
-        )
+        if self._client is None:
+            self._rebuild_client()
+        if self._client is None:
+            raise RuntimeError("Hugging Face client not initialized")
+        client = self._client
         history = self._get_thread_history(user_id, thread_id, limit=10)
 
         if self._enable_risk and self._should_run_risk(user_message, history):
@@ -241,8 +254,7 @@ class LLMService:
         }
         if any(k in text for k in keywords):
             return True
-        # Periodic check to avoid never running it.
-        return (len(history) % 6) == 0
+        return False
 
     def _extract_first_json_object(self, text: str) -> Dict[str, Any]:
         # Best-effort: find the first {...} block and parse it.
@@ -382,13 +394,11 @@ class LLMService:
         if not self._hugging_face_api_key:
             raise RuntimeError("Hugging Face API key not configured.")
 
-        client = HuggingFaceInferenceClient(
-            self._hugging_face_api_key,
-            base_url=self._hugging_face_base_url,
-            timeout_s=self._hugging_face_timeout_s,
-            max_attempts=self._hugging_face_max_attempts,
-            backoff_factor=self._hugging_face_backoff_factor,
-        )
+        if self._client is None:
+            self._rebuild_client()
+        if self._client is None:
+            raise RuntimeError("Hugging Face client not initialized")
+        client = self._client
         system = (
             "You are an analysis assistant.\n"
             "Summarize key themes, risks, and actionable next steps.\n"

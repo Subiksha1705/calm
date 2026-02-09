@@ -66,7 +66,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (!userId) return;
     setIsThreadsLoading(true);
     try {
-      const res = await api.listThreads();
+      const res = await api.listThreads(userId);
       const items: ThreadListItem[] = res.threads.map((t) => ({
         id: t.thread_id,
         createdAt: t.created_at,
@@ -95,7 +95,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setIsThreadLoading(true);
     setActiveThreadId(threadId);
     try {
-      const res = await api.getThreadMessages(threadId);
+      const res = await api.getThreadMessages(threadId, userId);
       setActiveMessages(
         res.messages.map((m) => ({
           role: m.role,
@@ -136,7 +136,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     let threadId = activeThreadId;
     if (!threadId) {
-      const started = await api.startChat(content);
+      const started = await api.startChat(content, userId);
       threadId = started.thread_id;
       setActiveThreadId(threadId);
       setActiveThreadMeta({ id: threadId, createdAt: '', updatedAt: '' });
@@ -150,7 +150,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const now = new Date().toISOString();
       setActiveMessages((prev) => [...prev, { role: 'user', content, timestamp: now }]);
 
-      const res = await api.sendMessage(threadId, content);
+      const res = await api.sendMessage(threadId, content, userId);
       const assistantNow = new Date().toISOString();
       setActiveMessages((prev) => [...prev, { role: 'assistant', content: res.reply, timestamp: assistantNow }]);
     }
@@ -162,7 +162,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const regenerateLast = useCallback(async () => {
     if (!userId || !activeThreadId) return;
 
-    const res = await api.regenerate(activeThreadId);
+    const res = await api.regenerate(activeThreadId, userId);
     const now = new Date().toISOString();
 
     setActiveMessages((prev) => {
@@ -182,7 +182,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const renameThread = useCallback(
     async (threadId: string, title: string) => {
       if (!userId) return;
-      await api.renameThread(threadId, title);
+      await api.renameThread(threadId, title, userId);
       setThreadListItems((prev) => prev.map((t) => (t.id === threadId ? { ...t, title } : t)));
     },
     [userId]
@@ -191,7 +191,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const deleteThread = useCallback(
     async (threadId: string) => {
       if (!userId) return;
-      await api.deleteThread(threadId);
+      await api.deleteThread(threadId, userId);
       setThreadListItems((prev) => prev.filter((t) => t.id !== threadId));
       if (activeThreadId === threadId) {
         clearActiveThread();
