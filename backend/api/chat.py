@@ -15,6 +15,7 @@ Processing flow:
 import json
 import os
 import time
+from datetime import datetime, timezone
 from typing import Iterator, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -34,6 +35,7 @@ router = APIRouter(
 )
 
 STREAM_CHAR_DELAY_MS = float(os.getenv("STREAM_CHAR_DELAY_MS", "20"))
+_ready_message_cache: dict[str, str] = {}
 
 
 class UnifiedChatRequest(BaseModel):
@@ -54,6 +56,11 @@ class LegacyRegenerateRequest(BaseModel):
 class StreamChatRequest(BaseModel):
     user_id: Optional[str] = Field(default=None)
     thread_id: Optional[str] = Field(default=None)
+    message: str
+
+
+class ReadyMessageResponse(BaseModel):
+    date: str
     message: str
 
 
@@ -255,6 +262,23 @@ def start_chat(
     """
     user_id = _resolve_user_id(user=user, provided_user_id=request.user_id)
     return _start_chat_impl(user_id=user_id, message=request.message)
+
+
+@router.get("/ready-message", response_model=ReadyMessageResponse)
+def get_ready_message(
+    user: Optional[AuthenticatedUser] = Depends(get_optional_user),
+) -> ReadyMessageResponse:
+    # Daily cache key in UTC.
+    day_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    cached = _ready_message_cache.get(day_key)
+    if cached:
+        return ReadyMessageResponse(date=day_key, message=cached)
+
+    user_hint = user.uid if user else "anonymous"
+    message = llm_service.generate_daily_ready_message(date_key=f"{day_key}:{user_hint}")
+    _ready_message_cache.clear()
+    _ready_message_cache[day_key] = message
+    return ReadyMessageResponse(date=day_key, message=message)
 
 
 @router.post("/stream")

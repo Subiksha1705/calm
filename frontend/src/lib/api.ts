@@ -113,6 +113,11 @@ interface RegenerateResponse {
   reply: string;
 }
 
+interface ReadyMessageResponse {
+  date: string;
+  message: string;
+}
+
 type StreamEvent =
   | { type: 'meta'; thread_id: string; is_new_thread: boolean }
   | { type: 'delta'; delta: string }
@@ -164,6 +169,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ user_id: userId, thread_id: threadId }),
     }),
+
+  getReadyMessage: () => fetchApi<ReadyMessageResponse>('/chat/ready-message'),
 
   streamChat: async ({
     threadId,

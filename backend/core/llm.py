@@ -12,6 +12,7 @@ The PRD specifies:
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import re
 from typing import Any, Dict, List, Optional
@@ -410,6 +411,55 @@ class LLMService:
             max_tokens=512,
             temperature=0.2,
         )
+
+    def generate_daily_ready_message(self, *, date_key: str) -> str:
+        """Generate a short daily greeting for the empty chat state."""
+        canned = [
+            "Ready when you are.",
+            "I'm here for you.",
+            "Start when you feel ready.",
+            "Take your time today.",
+            "Begin wherever feels right.",
+        ]
+        fallback = canned[abs(hash(date_key)) % len(canned)]
+
+        if self._mock_mode or not self._hugging_face_api_key:
+            return fallback
+
+        if self._client is None:
+            self._rebuild_client()
+        if self._client is None:
+            return fallback
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        system = (
+            "Write one short, warm opening line for a mental wellness chat app.\n"
+            "Constraints:\n"
+            "- 2 to 5 words\n"
+            "- gentle and encouraging tone\n"
+            "- no emojis\n"
+            "- no quotation marks\n"
+            "- avoid mentioning dates explicitly\n"
+            "Return only the single line but should be meaningfully short."
+        )
+        try:
+            content = self._client.chat_completions(
+                model=self._model_response,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": f"Generate today's line for {today}."},
+                ],
+                max_tokens=40,
+                temperature=0.8,
+            ).strip()
+            first_line = (content.splitlines()[0] if content else "").strip().strip('"')
+            if not first_line:
+                return fallback
+            words = first_line.split()
+            clamped = " ".join(words[:5]).strip()
+            return clamped or fallback
+        except Exception:
+            return fallback
 
 
 # Global service instance

@@ -1,3 +1,8 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
+
 /**
  * EmptyChatState Component
  * 
@@ -14,6 +19,26 @@
  * 
  */
 export function EmptyChatState() {
+  const [title, setTitle] = useState('Ready when you are.');
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api.getReadyMessage();
+        const next = (res.message || '').trim();
+        if (!cancelled && next) {
+          setTitle(next);
+        }
+      } catch {
+        // Keep fallback title.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] px-4">
       <div className="text-center">
@@ -23,7 +48,7 @@ export function EmptyChatState() {
           This matches ChatGPT's empty state behavior.
         */}
         <h2 className="text-3xl font-semibold text-gray-900 dark:text-gray-100">
-          Ready when you are.
+          {title}
         </h2>
       </div>
     </div>
