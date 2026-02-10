@@ -12,9 +12,13 @@ Processing flow:
 5. Return reply
 """
 
-from typing import Optional, Union
+import json
+import os
+import time
+from typing import Iterator, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from schemas.chat import ChatResponse, RegenerateRequest, StartChatRequest, StartChatResponse
@@ -28,6 +32,8 @@ router = APIRouter(
     prefix="/chat",
     tags=["chat"]
 )
+
+STREAM_CHAR_DELAY_MS = float(os.getenv("STREAM_CHAR_DELAY_MS", "20"))
 
 
 class UnifiedChatRequest(BaseModel):
@@ -45,6 +51,12 @@ class LegacyRegenerateRequest(BaseModel):
     user_id: Optional[str] = Field(default=None)
 
 
+class StreamChatRequest(BaseModel):
+    user_id: Optional[str] = Field(default=None)
+    thread_id: Optional[str] = Field(default=None)
+    message: str
+
+
 def _resolve_user_id(*, user: Optional[AuthenticatedUser], provided_user_id: Optional[str]) -> str:
     user_id = user.uid if user else provided_user_id
     if not user_id:
@@ -52,6 +64,79 @@ def _resolve_user_id(*, user: Optional[AuthenticatedUser], provided_user_id: Opt
     if user and provided_user_id and provided_user_id != user.uid:
         raise HTTPException(status_code=403, detail="user_id does not match authenticated user")
     return user_id
+
+
+def _save_assistant_reply(*, user_id: str, thread_id: str, message: str, reply: str) -> None:
+    try:
+        if hasattr(conversation_store, "add_exchange"):
+            conversation_store.add_exchange(
+                user_id=user_id,
+                thread_id=thread_id,
+                user_content=message,
+                assistant_content=reply,
+            )
+        else:
+            conversation_store.add_user_message(
+                user_id=user_id,
+                thread_id=thread_id,
+                content=message,
+            )
+            conversation_store.add_assistant_message(
+                user_id=user_id,
+                thread_id=thread_id,
+                content=reply,
+            )
+    except Exception:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Thread '{thread_id}' not found for user '{user_id}'",
+        )
+
+
+def _build_stream_payload(*, user_id: str, thread_id: Optional[str], message: str) -> tuple[str, str]:
+    if thread_id:
+        reply = llm_service.generate_response(
+            user_id=user_id,
+            thread_id=thread_id,
+            user_message=message,
+        )
+        _save_assistant_reply(user_id=user_id, thread_id=thread_id, message=message, reply=reply)
+        return thread_id, reply
+
+    new_thread_id = str(uuid4())
+    reply = llm_service.generate_response(
+        user_id=user_id,
+        thread_id=new_thread_id,
+        user_message=message,
+    )
+    try:
+        if hasattr(conversation_store, "start_thread_with_exchange"):
+            conversation_store.start_thread_with_exchange(
+                user_id=user_id,
+                thread_id=new_thread_id,
+                user_content=message,
+                assistant_content=reply,
+            )
+        else:
+            conversation_store.create_thread_with_id(user_id, new_thread_id)
+            _save_assistant_reply(user_id=user_id, thread_id=new_thread_id, message=message, reply=reply)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to start chat thread")
+    return new_thread_id, reply
+
+
+def _sse_message(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _stream_reply(*, thread_id: str, reply: str, is_new_thread: bool) -> Iterator[str]:
+    yield _sse_message({"type": "meta", "thread_id": thread_id, "is_new_thread": is_new_thread})
+    delay_s = max(0.0, STREAM_CHAR_DELAY_MS / 1000.0)
+    for ch in reply:
+        yield _sse_message({"type": "delta", "delta": ch})
+        if delay_s > 0:
+            time.sleep(delay_s)
+    yield _sse_message({"type": "done", "thread_id": thread_id})
 
 
 def _start_chat_impl(*, user_id: str, message: str) -> StartChatResponse:
@@ -170,6 +255,29 @@ def start_chat(
     """
     user_id = _resolve_user_id(user=user, provided_user_id=request.user_id)
     return _start_chat_impl(user_id=user_id, message=request.message)
+
+
+@router.post("/stream")
+def stream_chat(
+    request: StreamChatRequest,
+    user: Optional[AuthenticatedUser] = Depends(get_optional_user),
+) -> StreamingResponse:
+    user_id = _resolve_user_id(user=user, provided_user_id=request.user_id)
+    resolved_thread_id, reply = _build_stream_payload(
+        user_id=user_id,
+        thread_id=request.thread_id,
+        message=request.message,
+    )
+    is_new_thread = request.thread_id is None
+    return StreamingResponse(
+        _stream_reply(thread_id=resolved_thread_id, reply=reply, is_new_thread=is_new_thread),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("", response_model=Union[ChatResponse, StartChatResponse])

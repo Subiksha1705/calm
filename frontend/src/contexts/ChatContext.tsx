@@ -135,28 +135,44 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (!userId) throw new Error('User not initialized');
 
     let threadId = activeThreadId;
-    if (!threadId) {
-      const started = await api.startChat(content, userId);
-      threadId = started.thread_id;
-      setActiveThreadId(threadId);
-      setActiveThreadMeta({ id: threadId, createdAt: '', updatedAt: '' });
+    const now = new Date().toISOString();
+    setActiveMessages((prev) => [
+      ...prev,
+      { role: 'user', content, timestamp: now },
+      { role: 'assistant', content: '', timestamp: now },
+    ]);
 
-      const now = new Date().toISOString();
-      setActiveMessages([
-        { role: 'user', content, timestamp: now },
-        { role: 'assistant', content: started.reply, timestamp: now },
-      ]);
-    } else {
-      const now = new Date().toISOString();
-      setActiveMessages((prev) => [...prev, { role: 'user', content, timestamp: now }]);
+    const streamed = await api.streamChat({
+      threadId: threadId || undefined,
+      content,
+      userId,
+      onThreadMeta: (resolvedThreadId) => {
+        threadId = resolvedThreadId;
+        if (!activeThreadId) {
+          setActiveThreadId(resolvedThreadId);
+          setActiveThreadMeta({ id: resolvedThreadId, createdAt: '', updatedAt: '' });
+        }
+      },
+      onDelta: (delta) => {
+        const ts = new Date().toISOString();
+        setActiveMessages((prev) => {
+          if (prev.length === 0) return prev;
+          const idx = prev.length - 1;
+          const last = prev[idx];
+          if (last?.role !== 'assistant') {
+            return [...prev, { role: 'assistant', content: delta, timestamp: ts }];
+          }
+          const next = [...prev];
+          next[idx] = { ...last, content: `${last.content || ''}${delta}`, timestamp: ts };
+          return next;
+        });
+      },
+    });
 
-      const res = await api.sendMessage(threadId, content, userId);
-      const assistantNow = new Date().toISOString();
-      setActiveMessages((prev) => [...prev, { role: 'assistant', content: res.reply, timestamp: assistantNow }]);
-    }
+    threadId = streamed.threadId;
 
     void refreshThreads();
-    return threadId;
+    return threadId!;
   }, [userId, activeThreadId, refreshThreads]);
 
   const regenerateLast = useCallback(async () => {

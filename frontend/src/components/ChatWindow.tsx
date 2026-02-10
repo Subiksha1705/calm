@@ -92,6 +92,7 @@ export function ChatWindow() {
             <MessageList
               messages={messages}
               isRegenerating={isRegenerating}
+              isStreaming={isSending}
               onCopyMessage={handleCopyMessage}
               onRegenerate={handleRegenerate}
             />

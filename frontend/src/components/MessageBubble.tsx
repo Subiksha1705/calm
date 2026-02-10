@@ -16,6 +16,7 @@ interface MessageBubbleProps {
   message: Message;
   isLastAssistant?: boolean;
   isRegenerating?: boolean;
+  isStreaming?: boolean;
   onCopy?: (text: string) => void;
   onRegenerate?: () => void;
 }
@@ -24,21 +25,32 @@ export function MessageBubble({
   message,
   isLastAssistant = false,
   isRegenerating = false,
+  isStreaming = false,
   onCopy,
   onRegenerate,
 }: MessageBubbleProps) {
   const isUser = message.role === 'user';
+  const showStreamingDots =
+    !isUser && isLastAssistant && isStreaming && (message.content || '').trim().length === 0;
 
   return (
     <div className="w-full">
       <div className="w-full max-w-3xl mx-auto px-4 py-4">
         <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
           <div className={`min-w-0 ${isUser ? 'text-right' : 'text-left'} max-w-[85%]`}>
-            <div className="text-[15px] leading-6 text-gray-900 dark:text-gray-100 whitespace-pre-wrap break-words">
-              {message.content}
+            <div className="text-[15px] leading-6 text-gray-900 dark:text-gray-100 whitespace-pre-wrap break-words min-h-[1.5rem]">
+              {showStreamingDots ? (
+                <span className="inline-flex items-center gap-1.5 align-middle" aria-label="Assistant is typing">
+                  <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse [animation-delay:0ms]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse [animation-delay:150ms]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse [animation-delay:300ms]" />
+                </span>
+              ) : (
+                message.content
+              )}
             </div>
 
-            {!isUser && isLastAssistant && (onCopy || onRegenerate) ? (
+            {!isUser && isLastAssistant && !isStreaming && (onCopy || onRegenerate) ? (
               <div className="mt-2 flex items-center gap-1.5 text-xs text-gray-500 dark:text-white/50">
                 {onCopy ? (
                   <button

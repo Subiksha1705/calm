@@ -13,6 +13,7 @@ import { MessageBubble } from './MessageBubble';
 interface MessageListProps {
   messages: Message[];
   isRegenerating?: boolean;
+  isStreaming?: boolean;
   onCopyMessage?: (text: string) => void;
   onRegenerate?: () => void;
 }
@@ -20,6 +21,7 @@ interface MessageListProps {
 export function MessageList({
   messages,
   isRegenerating = false,
+  isStreaming = false,
   onCopyMessage,
   onRegenerate,
 }: MessageListProps) {
@@ -44,6 +46,7 @@ export function MessageList({
           message={message}
           isLastAssistant={index === lastAssistantIndex}
           isRegenerating={isRegenerating}
+          isStreaming={isStreaming}
           onCopy={onCopyMessage}
           onRegenerate={onRegenerate}
         />

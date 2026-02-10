@@ -113,6 +113,34 @@ interface RegenerateResponse {
   reply: string;
 }
 
+type StreamEvent =
+  | { type: 'meta'; thread_id: string; is_new_thread: boolean }
+  | { type: 'delta'; delta: string }
+  | { type: 'done'; thread_id: string };
+
+interface StreamChatParams {
+  threadId?: string;
+  content: string;
+  userId: string;
+  onThreadMeta?: (threadId: string, isNewThread: boolean) => void;
+  onDelta?: (delta: string) => void;
+}
+
+function parseSseEventBlock(block: string): StreamEvent | null {
+  const dataLines = block
+    .split('\n')
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trim());
+  if (dataLines.length === 0) return null;
+  const payload = dataLines.join('\n');
+  try {
+    const parsed = JSON.parse(payload) as StreamEvent;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export const api = {
   listThreads: (userId: string) => fetchApi<ListThreadsResponse>('/threads', {}, { user_id: userId }),
   
@@ -136,6 +164,80 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ user_id: userId, thread_id: threadId }),
     }),
+
+  streamChat: async ({
+    threadId,
+    content,
+    userId,
+    onThreadMeta,
+    onDelta,
+  }: StreamChatParams): Promise<{ threadId: string }> => {
+    const token = getAuthTokenFromCookie();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(buildApiUrl('/chat/stream'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ user_id: userId, thread_id: threadId, message: content }),
+    });
+
+    if (!response.ok) {
+      let message = `API request failed: ${response.statusText}`;
+      try {
+        const data = (await response.json()) as { detail?: string };
+        if (typeof data?.detail === 'string' && data.detail.trim()) {
+          message = data.detail;
+        }
+      } catch {
+        // Keep default message when body is not JSON.
+      }
+      throw new ApiError(message, response.status);
+    }
+
+    if (!response.body) {
+      throw new ApiError('Streaming response body is missing', response.status);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let resolvedThreadId: string | null = threadId ?? null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() ?? '';
+
+      for (const block of blocks) {
+        const evt = parseSseEventBlock(block);
+        if (!evt) continue;
+        if (evt.type === 'meta') {
+          resolvedThreadId = evt.thread_id;
+          onThreadMeta?.(evt.thread_id, evt.is_new_thread);
+          continue;
+        }
+        if (evt.type === 'delta') {
+          onDelta?.(evt.delta);
+          continue;
+        }
+        if (evt.type === 'done') {
+          resolvedThreadId = evt.thread_id;
+        }
+      }
+    }
+
+    if (!resolvedThreadId) {
+      throw new ApiError('Stream finished without thread id');
+    }
+    return { threadId: resolvedThreadId };
+  },
   
   renameThread: (threadId: string, title: string, userId: string) =>
     fetchApi<void>(`/threads/${threadId}`, {
