@@ -40,8 +40,8 @@ export function Sidebar() {
 
   // TASK 5: Thread continuation - Load messages when clicking sidebar thread
   // Also navigate to /chat/{threadId} for URL consistency
-  const handleThreadSelect = async (threadId: string) => {
-    await selectThread(threadId);
+  const handleThreadSelect = (threadId: string) => {
+    void selectThread(threadId);
     router.push(`/chat/${threadId}`);
     // Close mobile drawer if open
     setIsMobileDrawerOpen(false);
