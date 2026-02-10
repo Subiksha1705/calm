@@ -322,11 +322,50 @@ conversation_store = ConversationStoreProxy(InMemoryConversationStore())
 
 def init_conversation_store_from_env() -> str:
     """Initialize the global conversation store.
-
-    TEMPORARY (deployment unblock): force in-memory storage regardless of env vars.
     """
-    conversation_store.set_store(InMemoryConversationStore())
-    return "memory"
+    selected = "memory"
+    use_firebase = os.getenv("USE_FIREBASE", "false").lower() == "true"
+    if not use_firebase:
+        base_store = InMemoryConversationStore()
+    else:
+        fallback = os.getenv("FIREBASE_FALLBACK_TO_MEMORY", "false").lower() == "true"
+        try:
+            from core.firebase_storage import get_firebase_store
+
+            base_store = get_firebase_store()
+            selected = "firebase"
+        except Exception:
+            if not fallback:
+                raise
+            base_store = InMemoryConversationStore()
+            selected = "memory"
+
+    use_redis = os.getenv("USE_REDIS", "false").lower() == "true"
+    if use_redis:
+        redis_url = os.getenv("REDIS_URL", "").strip()
+        if not redis_url:
+            raise RuntimeError("USE_REDIS=true but REDIS_URL is not set")
+
+        import redis
+        from core.redis_cached_storage import RedisCachedConversationStore
+
+        redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
+        redis_client.ping()
+        # 0 => cache until invalidation.
+        thread_ttl_s = int(os.getenv("REDIS_THREAD_TTL_SECONDS", "0"))
+        threads_ttl_s = int(os.getenv("REDIS_THREADS_TTL_SECONDS", "0"))
+        key_prefix = os.getenv("REDIS_KEY_PREFIX", "calm_sphere")
+        base_store = RedisCachedConversationStore(
+            base_store=base_store,
+            redis_client=redis_client,
+            thread_ttl_seconds=thread_ttl_s,
+            threads_ttl_seconds=threads_ttl_s,
+            key_prefix=key_prefix,
+        )
+        selected = f"{selected}+redis"
+
+    conversation_store.set_store(base_store)
+    return selected
 
 
 __all__ = [
