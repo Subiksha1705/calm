@@ -109,19 +109,6 @@ export function MobileSidebarDrawer({
             </svg>
             Temporary chat
           </button>
-          <button
-            type="button"
-            disabled
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-400 dark:text-white/35 cursor-not-allowed bg-gray-100/70 dark:bg-white/5"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="9" cy="8" r="3" stroke="currentColor" strokeWidth="2" />
-              <circle cx="17" cy="10" r="2.5" stroke="currentColor" strokeWidth="2" />
-              <path d="M3.5 18a5.5 5.5 0 0 1 11 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              <path d="M14.5 18a4.5 4.5 0 0 1 6 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-            Group chat (soon)
-          </button>
         </div>
 
         <div className="px-3 pt-2 pb-1 text-xs font-medium text-gray-500 dark:text-white/50">
