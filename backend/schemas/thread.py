@@ -9,7 +9,6 @@ from typing import List, Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
-from typing import Optional
 
 # Import Message directly to avoid forward reference issues
 from schemas.chat import Message
@@ -76,6 +75,21 @@ class MutateThreadResponse(BaseModel):
     ok: bool = Field(description="Whether the operation succeeded")
 
 
+class SearchThreadItem(BaseModel):
+    thread_id: str = Field(description="Unique thread identifier")
+    created_at: str = Field(description="ISO 8601 timestamp when thread was created")
+    last_updated: str = Field(description="ISO 8601 timestamp of last activity")
+    title: Optional[str] = Field(default=None, description="Thread title")
+    preview: str = Field(description="Fallback thread preview text")
+    match_preview: str = Field(description="Snippet from a matched message")
+    match_count: int = Field(description="How many query words matched in this thread")
+
+
+class SearchThreadsResponse(BaseModel):
+    query: str = Field(description="Original search query")
+    threads: List[SearchThreadItem] = Field(description="Threads matching the query")
+
+
 __all__ = [
     "CreateThreadRequest",
     "CreateThreadResponse",
@@ -85,4 +99,6 @@ __all__ = [
     "ThreadMessagesResponse",
     "RenameThreadRequest",
     "MutateThreadResponse",
+    "SearchThreadItem",
+    "SearchThreadsResponse",
 ]

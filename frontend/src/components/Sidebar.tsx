@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { NewChatButton } from './NewChatButton';
 import { ThreadList } from './ThreadList';
 import { MobileSidebarDrawer } from './MobileSidebarDrawer';
+import { SearchChatsModal } from './SearchChatsModal';
 import { useChat } from '@/contexts/ChatContext';
 import { ProfileMenu } from '@/components/ProfileMenu';
 
@@ -38,8 +39,10 @@ export function Sidebar() {
     clearActiveThread,
     renameThread,
     deleteThread,
+    userId,
   } = useChat();
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
   // Handle new chat - clear active thread and navigate to /chat
   const handleNewChat = () => {
@@ -76,6 +79,11 @@ export function Sidebar() {
     }
   };
 
+  const handleOpenSearch = () => {
+    setIsMobileDrawerOpen(false);
+    setIsSearchOpen(true);
+  };
+
   return (
     <>
       {/* Desktop Sidebar */}
@@ -102,9 +110,8 @@ export function Sidebar() {
         <div className="px-2 pb-1">
           <button
             type="button"
-            disabled
-            aria-disabled="true"
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-400 dark:text-white/30 cursor-not-allowed"
+            onClick={handleOpenSearch}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
@@ -169,6 +176,7 @@ export function Sidebar() {
         activeThreadId={activeThread?.id || null}
         onThreadSelect={handleThreadSelect}
         onNewChat={handleNewChat}
+        onSearchChats={handleOpenSearch}
         onNewTemporaryChat={handleTemporaryChat}
         onRenameThread={handleRenameThread}
         onDeleteThread={handleDeleteThread}
@@ -194,6 +202,15 @@ export function Sidebar() {
           />
         </svg>
       </button>
+
+      <SearchChatsModal
+        isOpen={isSearchOpen}
+        userId={userId}
+        recentThreads={threadListItems}
+        onClose={() => setIsSearchOpen(false)}
+        onSelectThread={handleThreadSelect}
+        onNewChat={handleNewChat}
+      />
     </>
   );
 }

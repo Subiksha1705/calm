@@ -27,8 +27,39 @@ from __future__ import annotations
 
 from datetime import datetime
 import os
+import re
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
+
+_SEARCH_TERM_RE = re.compile(r"[a-z0-9]+")
+
+
+def _tokenize_query(text: str) -> List[str]:
+    return [m.group(0) for m in _SEARCH_TERM_RE.finditer((text or "").lower())]
+
+
+def _build_match_preview(content: str, query: str, radius: int = 80) -> str:
+    source = (content or "").strip()
+    if not source:
+        return ""
+    q = (query or "").strip().lower()
+    if not q:
+        return source[: (radius * 2) + 3]
+    lowered = source.lower()
+    idx = lowered.find(q)
+    if idx < 0:
+        for token in _tokenize_query(q):
+            idx = lowered.find(token)
+            if idx >= 0:
+                break
+    if idx < 0:
+        return source[: (radius * 2) + 3]
+    start = max(0, idx - radius)
+    end = min(len(source), idx + len(q) + radius)
+    snippet = source[start:end].strip()
+    prefix = "..." if start > 0 else ""
+    suffix = "..." if end < len(source) else ""
+    return f"{prefix}{snippet}{suffix}"
 
 
 class InMemoryConversationStore:
@@ -292,6 +323,47 @@ class InMemoryConversationStore:
         self._threads[user_id][thread_id]["title"] = title
         self._threads[user_id][thread_id]["last_updated"] = now
         return True
+
+    def search_threads(self, user_id: str, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+        if user_id not in self._threads:
+            return []
+        normalized = (query or "").strip()
+        if not normalized:
+            return []
+        terms = list(dict.fromkeys(_tokenize_query(normalized)))
+        if not terms:
+            return []
+
+        candidates: List[Dict[str, Any]] = []
+        for thread in self._threads[user_id].values():
+            messages = thread.get("messages", [])
+            best_preview = ""
+            best_count = 0
+            for msg in messages:
+                content = str(msg.get("content") or "")
+                lowered = content.lower()
+                count = sum(1 for term in terms if term in lowered)
+                if count <= 0:
+                    continue
+                if count > best_count:
+                    best_count = count
+                    best_preview = _build_match_preview(content, normalized)
+            if best_count <= 0:
+                continue
+            candidates.append(
+                {
+                    "thread_id": thread.get("thread_id", ""),
+                    "created_at": thread.get("created_at", ""),
+                    "last_updated": thread.get("last_updated", ""),
+                    "title": thread.get("title", ""),
+                    "preview": thread.get("preview", ""),
+                    "match_preview": best_preview,
+                    "match_count": best_count,
+                }
+            )
+
+        candidates.sort(key=lambda t: (t.get("match_count", 0), t.get("last_updated", "")), reverse=True)
+        return candidates[: max(1, int(limit))]
 
 
 class ConversationStoreProxy:

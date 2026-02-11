@@ -31,6 +31,7 @@ interface MobileSidebarDrawerProps {
   activeThreadId?: string | null;
   onThreadSelect: (threadId: string) => void;
   onNewChat?: () => void;
+  onSearchChats?: () => void;
   onNewTemporaryChat?: () => void;
   onRenameThread?: (threadId: string, title: string) => void;
   onDeleteThread?: (threadId: string) => Promise<void> | void;
@@ -43,6 +44,7 @@ export function MobileSidebarDrawer({
   activeThreadId,
   onThreadSelect,
   onNewChat,
+  onSearchChats,
   onNewTemporaryChat,
   onRenameThread,
   onDeleteThread,
@@ -84,9 +86,8 @@ export function MobileSidebarDrawer({
         <div className="px-2 pb-1">
           <button
             type="button"
-            disabled
-            aria-disabled="true"
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-400 dark:text-white/30 cursor-not-allowed"
+            onClick={onSearchChats}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />

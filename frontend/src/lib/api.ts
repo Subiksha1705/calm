@@ -96,6 +96,21 @@ interface ListThreadsResponse {
   threads: ThreadItem[];
 }
 
+interface SearchThreadItem {
+  thread_id: string;
+  title: string;
+  preview: string;
+  match_preview: string;
+  match_count: number;
+  created_at: string;
+  last_updated: string;
+}
+
+interface SearchThreadsResponse {
+  query: string;
+  threads: SearchThreadItem[];
+}
+
 interface GetThreadMessagesResponse {
   messages: MessageItem[];
 }
@@ -149,6 +164,13 @@ function parseSseEventBlock(block: string): StreamEvent | null {
 
 export const api = {
   listThreads: (userId: string) => fetchApi<ListThreadsResponse>('/threads', {}, { user_id: userId }),
+
+  searchThreads: (query: string, userId: string, limit = 20) =>
+    fetchApi<SearchThreadsResponse>('/threads/search', {}, {
+      user_id: userId,
+      query,
+      limit: String(limit),
+    }),
   
   getThreadMessages: (threadId: string, userId: string) =>
     fetchApi<GetThreadMessagesResponse>(`/threads/${threadId}`, {}, { user_id: userId }),

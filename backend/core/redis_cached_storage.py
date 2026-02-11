@@ -178,6 +178,10 @@ class RedisCachedConversationStore:
         self._invalidate_thread(user_id, thread_id)
         return ok
 
+    def search_threads(self, user_id: str, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+        # Search is query-dependent; delegate to source of truth.
+        return self._base.search_threads(user_id, query, limit)
+
     def warm_user_cache(self, user_id: str) -> int:
         """Warm list cache for a user and return thread count."""
         threads = self.get_user_threads(user_id)

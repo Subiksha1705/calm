@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+import re
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -38,6 +39,48 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 from core.firebase_app import ensure_firebase_admin_initialized
+
+_SEARCH_TERM_RE = re.compile(r"[a-z0-9]+")
+
+
+def _tokenize_query(text: str, max_terms: int = 32) -> List[str]:
+    if not text:
+        return []
+    unique: List[str] = []
+    seen = set()
+    for match in _SEARCH_TERM_RE.finditer(text.lower()):
+        token = match.group(0)
+        if token in seen:
+            continue
+        seen.add(token)
+        unique.append(token)
+        if len(unique) >= max_terms:
+            break
+    return unique
+
+
+def _build_match_preview(content: str, query: str, radius: int = 80) -> str:
+    source = (content or "").strip()
+    if not source:
+        return ""
+    query_l = (query or "").strip().lower()
+    if not query_l:
+        return source[: (radius * 2) + 3]
+    lowered = source.lower()
+    idx = lowered.find(query_l)
+    if idx < 0:
+        for token in _tokenize_query(query_l):
+            idx = lowered.find(token)
+            if idx >= 0:
+                break
+    if idx < 0:
+        return source[: (radius * 2) + 3]
+    start = max(0, idx - radius)
+    end = min(len(source), idx + len(query_l) + radius)
+    snippet = source[start:end].strip()
+    prefix = "..." if start > 0 else ""
+    suffix = "..." if end < len(source) else ""
+    return f"{prefix}{snippet}{suffix}"
 
 
 class FirebaseConversationStore:
@@ -111,6 +154,7 @@ class FirebaseConversationStore:
             "preview": "",
             "last_user_message": "",
             "last_assistant_message_id": None,
+            "search_terms": [],
         }
         
         logger.info(f"📤 Creating thread in Firestore (users/{user_id}/threads): {thread_id}")
@@ -135,6 +179,7 @@ class FirebaseConversationStore:
         assistant_ref = self._messages_ref(user_id, thread_id).document(assistant_message_id)
 
         preview = assistant_content[:50] + ("..." if len(assistant_content) > 50 else "")
+        combined_terms = _tokenize_query(f"{user_content} {assistant_content}")
 
         batch = self._db.batch()
         batch.set(
@@ -148,15 +193,26 @@ class FirebaseConversationStore:
                 "preview": preview,
                 "last_user_message": user_content,
                 "last_assistant_message_id": assistant_message_id,
+                "search_terms": combined_terms,
             },
         )
         batch.set(
             user_ref,
-            {"role": "user", "content": user_content, "timestamp": firestore.SERVER_TIMESTAMP},
+            {
+                "role": "user",
+                "content": user_content,
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "search_terms": _tokenize_query(user_content),
+            },
         )
         batch.set(
             assistant_ref,
-            {"role": "assistant", "content": assistant_content, "timestamp": firestore.SERVER_TIMESTAMP},
+            {
+                "role": "assistant",
+                "content": assistant_content,
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "search_terms": _tokenize_query(assistant_content),
+            },
         )
         batch.commit()
 
@@ -216,25 +272,36 @@ class FirebaseConversationStore:
         thread_ref = self._thread_ref(user_id, thread_id)
 
         preview = assistant_content[:50] + ("..." if len(assistant_content) > 50 else "")
+        combined_terms = _tokenize_query(f"{user_content} {assistant_content}")
 
         batch = self._db.batch()
         batch.set(
             user_ref,
-            {"role": "user", "content": user_content, "timestamp": firestore.SERVER_TIMESTAMP},
+            {
+                "role": "user",
+                "content": user_content,
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "search_terms": _tokenize_query(user_content),
+            },
         )
         batch.set(
             assistant_ref,
-            {"role": "assistant", "content": assistant_content, "timestamp": firestore.SERVER_TIMESTAMP},
-        )
-        batch.update(
-            thread_ref,
             {
-                "last_updated": firestore.SERVER_TIMESTAMP,
-                "preview": preview,
-                "last_user_message": user_content,
-                "last_assistant_message_id": assistant_message_id,
+                "role": "assistant",
+                "content": assistant_content,
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "search_terms": _tokenize_query(assistant_content),
             },
         )
+        thread_updates: Dict[str, Any] = {
+            "last_updated": firestore.SERVER_TIMESTAMP,
+            "preview": preview,
+            "last_user_message": user_content,
+            "last_assistant_message_id": assistant_message_id,
+        }
+        if combined_terms:
+            thread_updates["search_terms"] = firestore.ArrayUnion(combined_terms)
+        batch.update(thread_ref, thread_updates)
         batch.commit()
 
         now_iso = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
@@ -265,14 +332,18 @@ class FirebaseConversationStore:
                 "role": role,
                 "content": content,
                 "timestamp": firestore.SERVER_TIMESTAMP,
+                "search_terms": _tokenize_query(content),
             },
         )
 
         preview = content[:50] + ("..." if len(content) > 50 else "")
+        terms = _tokenize_query(content)
         thread_updates: Dict[str, Any] = {
             "last_updated": firestore.SERVER_TIMESTAMP,
             "preview": preview,
         }
+        if terms:
+            thread_updates["search_terms"] = firestore.ArrayUnion(terms)
         if role == "user":
             thread_updates["last_user_message"] = content
         elif role == "assistant":
@@ -402,15 +473,17 @@ class FirebaseConversationStore:
                 {
                     "content": content,
                     "timestamp": firestore.SERVER_TIMESTAMP,
+                    "search_terms": _tokenize_query(content),
                 },
             )
-            batch.update(
-                thread_ref,
-                {
-                    "last_updated": firestore.SERVER_TIMESTAMP,
-                    "preview": preview,
-                },
-            )
+            thread_updates: Dict[str, Any] = {
+                "last_updated": firestore.SERVER_TIMESTAMP,
+                "preview": preview,
+            }
+            terms = _tokenize_query(content)
+            if terms:
+                thread_updates["search_terms"] = firestore.ArrayUnion(terms)
+            batch.update(thread_ref, thread_updates)
             batch.commit()
             return True
         except Exception:
@@ -445,6 +518,98 @@ class FirebaseConversationStore:
             return False
         thread_ref.update({"title": title, "last_updated": firestore.SERVER_TIMESTAMP})
         return True
+
+    def search_threads(self, user_id: str, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+        normalized = (query or "").strip()
+        if not normalized:
+            return []
+        terms = _tokenize_query(normalized)
+        if not terms:
+            return []
+        max_limit = max(1, min(int(limit), 50))
+        primary_term = max(terms, key=len)
+        candidates: List[Dict[str, Any]] = []
+        scan_limit = max(max_limit * 8, 40)
+        seen_thread_ids = set()
+
+        def try_add_doc(doc: Any) -> None:
+            if doc.id in seen_thread_ids:
+                return
+            data = doc.to_dict() or {}
+            thread_terms = {str(t).lower() for t in (data.get("search_terms") or []) if isinstance(t, str)}
+            if thread_terms:
+                if not any(term in thread_terms for term in terms):
+                    return
+                score = sum(1 for term in terms if term in thread_terms)
+            else:
+                score = 1
+            snippet = self._find_best_match_preview(user_id=user_id, thread_id=doc.id, query=normalized, terms=terms)
+            if not snippet:
+                return
+            created_at = self._to_iso(data.get("created_at"), fallback_dt=getattr(doc, "create_time", None))
+            last_updated = self._to_iso(data.get("last_updated"), fallback_dt=getattr(doc, "update_time", None))
+            candidates.append(
+                {
+                    "thread_id": data.get("thread_id", doc.id),
+                    "user_id": user_id,
+                    "created_at": created_at,
+                    "last_updated": last_updated,
+                    "title": data.get("title", ""),
+                    "preview": data.get("preview", ""),
+                    "match_preview": snippet,
+                    "match_count": score,
+                }
+            )
+            seen_thread_ids.add(doc.id)
+
+        try:
+            docs_iter = (
+                self._threads_ref(user_id)
+                .where("search_terms", "array_contains", primary_term)
+                .limit(scan_limit)
+                .stream()
+            )
+            for doc in docs_iter:
+                try_add_doc(doc)
+        except Exception:
+            # Fall through to full scan when index/filter is unavailable.
+            pass
+
+        # Backward-compatibility for older threads that were saved before search_terms indexing.
+        if len(candidates) < max_limit:
+            for doc in self._threads_ref(user_id).stream():
+                try_add_doc(doc)
+
+        candidates.sort(key=lambda t: (t.get("match_count", 0), t.get("last_updated", "")), reverse=True)
+        return candidates[:max_limit]
+
+    def _find_best_match_preview(self, user_id: str, thread_id: str, query: str, terms: List[str]) -> str:
+        primary_term = max(terms, key=len)
+        best_content = ""
+        best_score = 0
+        messages_ref = self._messages_ref(user_id, thread_id)
+
+        queried_docs = []
+        try:
+            queried_docs = list(messages_ref.where("search_terms", "array_contains", primary_term).limit(40).stream())
+        except Exception:
+            queried_docs = []
+
+        if not queried_docs:
+            queried_docs = list(messages_ref.limit(120).stream())
+
+        for doc in queried_docs:
+            data = doc.to_dict() or {}
+            content = str(data.get("content") or "")
+            lowered = content.lower()
+            score = sum(1 for term in terms if term in lowered)
+            if score > best_score:
+                best_score = score
+                best_content = content
+
+        if best_score <= 0:
+            return ""
+        return _build_match_preview(best_content, query)
 
 
 # Factory function to get Firebase store instance

@@ -20,6 +20,8 @@ from schemas.thread import (
     ThreadMessagesResponse,
     RenameThreadRequest,
     MutateThreadResponse,
+    SearchThreadItem,
+    SearchThreadsResponse,
 )
 from schemas.chat import Message
 from core.storage import conversation_store
@@ -117,6 +119,48 @@ def list_threads(
         thread_items.append(thread_item)
     
     return ListThreadsResponse(threads=thread_items)
+
+
+@router.get("/search", response_model=SearchThreadsResponse)
+def search_threads(
+    query: str,
+    user_id: Optional[str] = None,
+    limit: int = 20,
+    user: Optional[AuthenticatedUser] = Depends(get_optional_user),
+) -> SearchThreadsResponse:
+    effective_user_id = user.uid if user else user_id
+    if not effective_user_id:
+        raise HTTPException(status_code=400, detail="user_id query parameter is required")
+    if user and user_id and user_id != user.uid:
+        raise HTTPException(status_code=403, detail="user_id does not match authenticated user")
+
+    cleaned_query = (query or "").strip()
+    if not cleaned_query:
+        return SearchThreadsResponse(query="", threads=[])
+
+    max_limit = max(1, min(int(limit), 50))
+    raw_results = []
+    if hasattr(conversation_store, "search_threads"):
+        raw_results = conversation_store.search_threads(effective_user_id, cleaned_query, max_limit) or []
+
+    items: List[SearchThreadItem] = []
+    for thread in raw_results:
+        title = thread.get("title") or _derive_title(
+            thread.get("last_user_message") or thread.get("match_preview") or thread.get("preview") or ""
+        )
+        items.append(
+            SearchThreadItem(
+                thread_id=thread.get("thread_id", ""),
+                created_at=thread.get("created_at", ""),
+                last_updated=thread.get("last_updated", ""),
+                title=title,
+                preview=thread.get("preview", ""),
+                match_preview=thread.get("match_preview", ""),
+                match_count=int(thread.get("match_count") or 1),
+            )
+        )
+
+    return SearchThreadsResponse(query=cleaned_query, threads=items[:max_limit])
 
 
 @router.get("/{thread_id}", response_model=ThreadMessagesResponse)
