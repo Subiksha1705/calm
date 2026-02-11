@@ -41,6 +41,10 @@ logger = logging.getLogger(__name__)
 from core.firebase_app import ensure_firebase_admin_initialized
 
 _SEARCH_TERM_RE = re.compile(r"[a-z0-9]+")
+_SEARCH_QUERY_NORMALIZATION_PATTERNS = [
+    (re.compile(r"\bjef+re?y?\s+epst?i?e?n\b", flags=re.IGNORECASE), "jeffrey epstein"),
+    (re.compile(r"\bjeffe?ry\s+epst?i?e?n\b", flags=re.IGNORECASE), "jeffrey epstein"),
+]
 
 
 def _tokenize_query(text: str, max_terms: int = 32) -> List[str]:
@@ -57,6 +61,60 @@ def _tokenize_query(text: str, max_terms: int = 32) -> List[str]:
         if len(unique) >= max_terms:
             break
     return unique
+
+
+def _normalize_search_query(text: str) -> str:
+    normalized = text or ""
+    for pattern, replacement in _SEARCH_QUERY_NORMALIZATION_PATTERNS:
+        normalized = pattern.sub(replacement, normalized)
+    return normalized
+
+
+def _query_terms_for_search(text: str, max_terms: int = 32) -> List[str]:
+    # Use both raw and normalized forms so typo queries can match corrected content
+    # and exact-typed odd variants can still match existing typo content.
+    raw_terms = _tokenize_query(text, max_terms=max_terms)
+    normalized_terms = _tokenize_query(_normalize_search_query(text), max_terms=max_terms)
+    out: List[str] = []
+    seen = set()
+    for token in raw_terms + normalized_terms:
+        if token in seen:
+            continue
+        seen.add(token)
+        out.append(token)
+        if len(out) >= max_terms:
+            break
+    return out
+
+
+def _token_prefixes(tokens: List[str], *, min_len: int = 3, max_len: int = 12, max_prefixes: int = 256) -> List[str]:
+    prefixes: List[str] = []
+    seen = set()
+    for token in tokens:
+        if not token:
+            continue
+        options = [token]
+        if len(token) >= min_len:
+            options.extend(token[:i] for i in range(min_len, min(len(token), max_len) + 1))
+        for p in options:
+            if p in seen:
+                continue
+            seen.add(p)
+            prefixes.append(p)
+            if len(prefixes) >= max_prefixes:
+                return prefixes
+    return prefixes
+
+
+def _message_match_count(content: str, terms: List[str]) -> int:
+    content_tokens = _tokenize_query(content, max_terms=256)
+    if not content_tokens:
+        return 0
+    score = 0
+    for term in terms:
+        if any(tok.startswith(term) for tok in content_tokens):
+            score += 1
+    return score
 
 
 def _build_match_preview(content: str, query: str, radius: int = 80) -> str:
@@ -155,6 +213,7 @@ class FirebaseConversationStore:
             "last_user_message": "",
             "last_assistant_message_id": None,
             "search_terms": [],
+            "search_prefixes": [],
         }
         
         logger.info(f"📤 Creating thread in Firestore (users/{user_id}/threads): {thread_id}")
@@ -180,6 +239,11 @@ class FirebaseConversationStore:
 
         preview = assistant_content[:50] + ("..." if len(assistant_content) > 50 else "")
         combined_terms = _tokenize_query(f"{user_content} {assistant_content}")
+        combined_prefixes = _token_prefixes(combined_terms)
+        user_terms = _tokenize_query(user_content)
+        user_prefixes = _token_prefixes(user_terms)
+        assistant_terms = _tokenize_query(assistant_content)
+        assistant_prefixes = _token_prefixes(assistant_terms)
 
         batch = self._db.batch()
         batch.set(
@@ -194,6 +258,7 @@ class FirebaseConversationStore:
                 "last_user_message": user_content,
                 "last_assistant_message_id": assistant_message_id,
                 "search_terms": combined_terms,
+                "search_prefixes": combined_prefixes,
             },
         )
         batch.set(
@@ -202,7 +267,8 @@ class FirebaseConversationStore:
                 "role": "user",
                 "content": user_content,
                 "timestamp": firestore.SERVER_TIMESTAMP,
-                "search_terms": _tokenize_query(user_content),
+                "search_terms": user_terms,
+                "search_prefixes": user_prefixes,
             },
         )
         batch.set(
@@ -211,7 +277,8 @@ class FirebaseConversationStore:
                 "role": "assistant",
                 "content": assistant_content,
                 "timestamp": firestore.SERVER_TIMESTAMP,
-                "search_terms": _tokenize_query(assistant_content),
+                "search_terms": assistant_terms,
+                "search_prefixes": assistant_prefixes,
             },
         )
         batch.commit()
@@ -273,6 +340,11 @@ class FirebaseConversationStore:
 
         preview = assistant_content[:50] + ("..." if len(assistant_content) > 50 else "")
         combined_terms = _tokenize_query(f"{user_content} {assistant_content}")
+        combined_prefixes = _token_prefixes(combined_terms)
+        user_terms = _tokenize_query(user_content)
+        user_prefixes = _token_prefixes(user_terms)
+        assistant_terms = _tokenize_query(assistant_content)
+        assistant_prefixes = _token_prefixes(assistant_terms)
 
         batch = self._db.batch()
         batch.set(
@@ -281,7 +353,8 @@ class FirebaseConversationStore:
                 "role": "user",
                 "content": user_content,
                 "timestamp": firestore.SERVER_TIMESTAMP,
-                "search_terms": _tokenize_query(user_content),
+                "search_terms": user_terms,
+                "search_prefixes": user_prefixes,
             },
         )
         batch.set(
@@ -290,7 +363,8 @@ class FirebaseConversationStore:
                 "role": "assistant",
                 "content": assistant_content,
                 "timestamp": firestore.SERVER_TIMESTAMP,
-                "search_terms": _tokenize_query(assistant_content),
+                "search_terms": assistant_terms,
+                "search_prefixes": assistant_prefixes,
             },
         )
         thread_updates: Dict[str, Any] = {
@@ -301,6 +375,8 @@ class FirebaseConversationStore:
         }
         if combined_terms:
             thread_updates["search_terms"] = firestore.ArrayUnion(combined_terms)
+        if combined_prefixes:
+            thread_updates["search_prefixes"] = firestore.ArrayUnion(combined_prefixes)
         batch.update(thread_ref, thread_updates)
         batch.commit()
 
@@ -325,6 +401,8 @@ class FirebaseConversationStore:
         thread_ref = self._thread_ref(user_id, thread_id)
 
         # Use a batch for low-latency, atomic updates (2 writes, no reads).
+        terms = _tokenize_query(content)
+        prefixes = _token_prefixes(terms)
         batch = self._db.batch()
         batch.set(
             message_ref,
@@ -332,18 +410,20 @@ class FirebaseConversationStore:
                 "role": role,
                 "content": content,
                 "timestamp": firestore.SERVER_TIMESTAMP,
-                "search_terms": _tokenize_query(content),
+                "search_terms": terms,
+                "search_prefixes": prefixes,
             },
         )
 
         preview = content[:50] + ("..." if len(content) > 50 else "")
-        terms = _tokenize_query(content)
         thread_updates: Dict[str, Any] = {
             "last_updated": firestore.SERVER_TIMESTAMP,
             "preview": preview,
         }
         if terms:
             thread_updates["search_terms"] = firestore.ArrayUnion(terms)
+        if prefixes:
+            thread_updates["search_prefixes"] = firestore.ArrayUnion(prefixes)
         if role == "user":
             thread_updates["last_user_message"] = content
         elif role == "assistant":
@@ -468,21 +548,25 @@ class FirebaseConversationStore:
         preview = content[:50] + ("..." if len(content) > 50 else "")
         batch = self._db.batch()
         try:
+            terms = _tokenize_query(content)
+            prefixes = _token_prefixes(terms)
             batch.update(
                 message_ref,
                 {
                     "content": content,
                     "timestamp": firestore.SERVER_TIMESTAMP,
-                    "search_terms": _tokenize_query(content),
+                    "search_terms": terms,
+                    "search_prefixes": prefixes,
                 },
             )
             thread_updates: Dict[str, Any] = {
                 "last_updated": firestore.SERVER_TIMESTAMP,
                 "preview": preview,
             }
-            terms = _tokenize_query(content)
             if terms:
                 thread_updates["search_terms"] = firestore.ArrayUnion(terms)
+            if prefixes:
+                thread_updates["search_prefixes"] = firestore.ArrayUnion(prefixes)
             batch.update(thread_ref, thread_updates)
             batch.commit()
             return True
@@ -523,7 +607,7 @@ class FirebaseConversationStore:
         normalized = (query or "").strip()
         if not normalized:
             return []
-        terms = _tokenize_query(normalized)
+        terms = _query_terms_for_search(normalized)
         if not terms:
             return []
         max_limit = max(1, min(int(limit), 50))
@@ -536,11 +620,11 @@ class FirebaseConversationStore:
             if doc.id in seen_thread_ids:
                 return
             data = doc.to_dict() or {}
-            thread_terms = {str(t).lower() for t in (data.get("search_terms") or []) if isinstance(t, str)}
-            if thread_terms:
-                if not any(term in thread_terms for term in terms):
+            thread_prefixes = {str(t).lower() for t in (data.get("search_prefixes") or []) if isinstance(t, str)}
+            if thread_prefixes:
+                if not any(term in thread_prefixes for term in terms):
                     return
-                score = sum(1 for term in terms if term in thread_terms)
+                score = sum(1 for term in terms if term in thread_prefixes)
             else:
                 score = 1
             snippet = self._find_best_match_preview(user_id=user_id, thread_id=doc.id, query=normalized, terms=terms)
@@ -565,7 +649,7 @@ class FirebaseConversationStore:
         try:
             docs_iter = (
                 self._threads_ref(user_id)
-                .where("search_terms", "array_contains", primary_term)
+                .where("search_prefixes", "array_contains", primary_term)
                 .limit(scan_limit)
                 .stream()
             )
@@ -575,7 +659,7 @@ class FirebaseConversationStore:
             # Fall through to full scan when index/filter is unavailable.
             pass
 
-        # Backward-compatibility for older threads that were saved before search_terms indexing.
+        # Backward-compatibility for older threads that were saved before search_prefixes indexing.
         if len(candidates) < max_limit:
             for doc in self._threads_ref(user_id).stream():
                 try_add_doc(doc)
@@ -591,7 +675,7 @@ class FirebaseConversationStore:
 
         queried_docs = []
         try:
-            queried_docs = list(messages_ref.where("search_terms", "array_contains", primary_term).limit(40).stream())
+            queried_docs = list(messages_ref.where("search_prefixes", "array_contains", primary_term).limit(40).stream())
         except Exception:
             queried_docs = []
 
@@ -601,8 +685,7 @@ class FirebaseConversationStore:
         for doc in queried_docs:
             data = doc.to_dict() or {}
             content = str(data.get("content") or "")
-            lowered = content.lower()
-            score = sum(1 for term in terms if term in lowered)
+            score = _message_match_count(content, terms)
             if score > best_score:
                 best_score = score
                 best_content = content

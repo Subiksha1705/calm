@@ -32,10 +32,45 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 _SEARCH_TERM_RE = re.compile(r"[a-z0-9]+")
+_SEARCH_QUERY_NORMALIZATION_PATTERNS = [
+    (re.compile(r"\bjef+re?y?\s+epst?i?e?n\b", flags=re.IGNORECASE), "jeffrey epstein"),
+    (re.compile(r"\bjeffe?ry\s+epst?i?e?n\b", flags=re.IGNORECASE), "jeffrey epstein"),
+]
 
 
 def _tokenize_query(text: str) -> List[str]:
     return [m.group(0) for m in _SEARCH_TERM_RE.finditer((text or "").lower())]
+
+
+def _normalize_search_query(text: str) -> str:
+    normalized = text or ""
+    for pattern, replacement in _SEARCH_QUERY_NORMALIZATION_PATTERNS:
+        normalized = pattern.sub(replacement, normalized)
+    return normalized
+
+
+def _query_terms_for_search(text: str) -> List[str]:
+    raw_terms = _tokenize_query(text)
+    normalized_terms = _tokenize_query(_normalize_search_query(text))
+    out: List[str] = []
+    seen = set()
+    for token in raw_terms + normalized_terms:
+        if token in seen:
+            continue
+        seen.add(token)
+        out.append(token)
+    return out
+
+
+def _message_match_count(content: str, terms: List[str]) -> int:
+    content_tokens = _tokenize_query(content)
+    if not content_tokens:
+        return 0
+    score = 0
+    for term in terms:
+        if any(tok.startswith(term) for tok in content_tokens):
+            score += 1
+    return score
 
 
 def _build_match_preview(content: str, query: str, radius: int = 80) -> str:
@@ -330,7 +365,7 @@ class InMemoryConversationStore:
         normalized = (query or "").strip()
         if not normalized:
             return []
-        terms = list(dict.fromkeys(_tokenize_query(normalized)))
+        terms = _query_terms_for_search(normalized)
         if not terms:
             return []
 
@@ -341,8 +376,7 @@ class InMemoryConversationStore:
             best_count = 0
             for msg in messages:
                 content = str(msg.get("content") or "")
-                lowered = content.lower()
-                count = sum(1 for term in terms if term in lowered)
+                count = _message_match_count(content, terms)
                 if count <= 0:
                     continue
                 if count > best_count:

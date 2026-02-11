@@ -20,6 +20,23 @@ from typing import Any, Dict, List, Optional
 from core.config import get_settings
 from core.huggingface import HuggingFaceInferenceClient
 
+_ENTITY_TYPO_PATTERNS = [
+    # Jeffrey Epstein variants seen in user text.
+    (re.compile(r"\bjef+re?y?\s+epst?i?e?n\b", flags=re.IGNORECASE), "Jeffrey Epstein"),
+    (re.compile(r"\bjeffe?ry\s+epst?i?e?n\b", flags=re.IGNORECASE), "Jeffrey Epstein"),
+    (re.compile(r"\btrmp\b", flags=re.IGNORECASE), "Trump"),
+    (re.compile(r"\bpresiednt\b", flags=re.IGNORECASE), "president"),
+    (re.compile(r"\busa\b", flags=re.IGNORECASE), "US"),
+]
+_DISTRESS_HINT_RE = re.compile(
+    r"\b("
+    r"suicide|kill myself|self harm|self-harm|hopeless|can't go on|want to die|"
+    r"panic|anxiety attack|depressed|depression|worthless|helpless|"
+    r"hurt myself|end my life|overwhelmed"
+    r")\b",
+    flags=re.IGNORECASE,
+)
+
 
 class LLMService:
     """Service for generating AI responses.
@@ -160,44 +177,47 @@ class LLMService:
         Returns:
             The generated response text
         """
+        normalized_user_message = self._normalize_user_message_text(user_message)
+
         if self._mock_mode:
-            return self._generate_mock_response(user_message)
+            return self._generate_mock_response(normalized_user_message)
 
         try:
-            response = self._generate_llm_response(user_id, thread_id, user_message)
+            response = self._generate_llm_response(user_id, thread_id, normalized_user_message)
             if isinstance(response, str) and response.strip():
                 return response.strip()
-            return self._safe_fallback_response(user_message=user_message)
+            return self._safe_fallback_response(user_message=normalized_user_message)
         except Exception:
-            return self._safe_fallback_response(user_message=user_message)
+            return self._safe_fallback_response(user_message=normalized_user_message)
 
     def generate_ephemeral_response(self, user_message: str) -> str:
         """Generate a response without loading or persisting conversation history."""
+        normalized_user_message = self._normalize_user_message_text(user_message)
         if self._mock_mode:
-            return self._generate_mock_response(user_message)
+            return self._generate_mock_response(normalized_user_message)
 
         try:
             if not self._hugging_face_api_key:
-                return self._safe_fallback_response(user_message=user_message)
+                return self._safe_fallback_response(user_message=normalized_user_message)
             if self._client is None:
                 self._rebuild_client()
             if self._client is None:
-                return self._safe_fallback_response(user_message=user_message)
+                return self._safe_fallback_response(user_message=normalized_user_message)
             client = self._client
             history: List[Dict[str, str]] = []
 
-            if self._enable_risk and self._should_run_risk(user_message, history):
-                risk = self._run_risk(client=client, user_message=user_message, history=history)
+            if self._enable_risk and self._should_run_risk(normalized_user_message, history):
+                risk = self._run_risk(client=client, user_message=normalized_user_message, history=history)
                 if risk.get("overall_risk") == "high":
                     return self._run_crisis_response(
                         client=client,
-                        user_message=user_message,
+                        user_message=normalized_user_message,
                         history=history,
                         risk=risk,
                     )
                 violence_assessment = self._run_violence_intent(
                     client=client,
-                    user_message=user_message,
+                    user_message=normalized_user_message,
                     history=history,
                 )
                 if self._should_run_violence_deescalation(
@@ -206,23 +226,30 @@ class LLMService:
                 ):
                     return self._run_violence_deescalation_response(
                         client=client,
-                        user_message=user_message,
+                        user_message=normalized_user_message,
                         history=history,
                         risk=risk,
                     )
 
             emotion: Dict[str, Any] | None = None
             if self._enable_emotion:
-                emotion = self._run_emotion(client=client, user_message=user_message)
+                emotion = self._run_emotion(client=client, user_message=normalized_user_message)
 
             return self._run_response(
                 client=client,
-                user_message=user_message,
+                user_message=normalized_user_message,
                 history=history,
                 emotion=emotion,
-            ) or self._safe_fallback_response(user_message=user_message)
+            ) or self._safe_fallback_response(user_message=normalized_user_message)
         except Exception:
-            return self._safe_fallback_response(user_message=user_message)
+            return self._safe_fallback_response(user_message=normalized_user_message)
+
+    def _normalize_user_message_text(self, user_message: str) -> str:
+        text = user_message or ""
+        normalized = text
+        for pattern, replacement in _ENTITY_TYPO_PATTERNS:
+            normalized = pattern.sub(replacement, normalized)
+        return normalized
 
     def generate_thread_title(
         self,
@@ -297,12 +324,27 @@ class LLMService:
 
     def _safe_fallback_response(self, *, user_message: str) -> str:
         content = (user_message or "").strip()
-        if content:
+        if not content:
+            return "I am here. Ask me anything, and I will do my best to help."
+
+        lowered = content.lower()
+        if _DISTRESS_HINT_RE.search(content):
             return (
                 "I'm here and listening. I might have missed part of that, but I still want to understand. "
                 "Could you tell me a little more about what feels most important right now?"
             )
-        return "I'm here with you. Share whatever is on your mind, and we can take it one step at a time."
+
+        if ("trump" in lowered or "president" in lowered) and "epstein" in lowered:
+            return (
+                "If you mean Donald Trump and Jeffrey Epstein: they were in overlapping social circles in the 1990s/2000s "
+                "and appear together in public records/photos, but that alone does not prove criminal involvement. "
+                "If you want, I can give a neutral timeline of publicly reported facts."
+            )
+
+        return (
+            "I may be having a temporary model issue, but I understood your question. "
+            "Try asking in one short sentence and I will answer directly."
+        )
 
     def _fallback_thread_title(self, text: str) -> str:
         cleaned = re.sub(r"[\r\n]+", " ", (text or "")).strip()
@@ -745,6 +787,8 @@ class LLMService:
             "When helpful, reference the user's own strengths/achievements from earlier messages to build hope.\n"
             "Do this in a validating way, never as blame, pressure, or guilt.\n"
             "Use fresh wording each turn; do not repeat canned lines.\n"
+            "If user asks a factual question about a person/place/topic, answer directly and concretely first.\n"
+            "For obvious misspellings of well-known names, infer the intended name and proceed.\n"
             "If the user asks for a routine, give 3–5 concrete, realistic steps.\n"
             f"{emotion_line}"
             f"{strengths_line}"
