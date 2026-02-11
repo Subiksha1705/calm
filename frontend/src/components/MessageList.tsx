@@ -15,6 +15,7 @@ interface MessageListProps {
   isRegenerating?: boolean;
   isStreaming?: boolean;
   onCopyMessage?: (text: string) => void;
+  onEditMessage?: (text: string) => void;
   onRegenerate?: () => void;
 }
 
@@ -23,6 +24,7 @@ export function MessageList({
   isRegenerating = false,
   isStreaming = false,
   onCopyMessage,
+  onEditMessage,
   onRegenerate,
 }: MessageListProps) {
   if (messages.length === 0) {
@@ -48,6 +50,7 @@ export function MessageList({
           isRegenerating={isRegenerating}
           isStreaming={isStreaming}
           onCopy={onCopyMessage}
+          onEdit={onEditMessage}
           onRegenerate={onRegenerate}
         />
       ))}

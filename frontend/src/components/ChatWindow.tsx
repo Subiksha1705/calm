@@ -32,6 +32,7 @@ export function ChatWindow() {
   const { activeThread, sendMessage, regenerateLast } = useChat();
   const [isSending, setIsSending] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [composerValue, setComposerValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Get messages from active thread (from context)
@@ -94,6 +95,9 @@ export function ChatWindow() {
               isRegenerating={isRegenerating}
               isStreaming={isSending}
               onCopyMessage={handleCopyMessage}
+              onEditMessage={(text) => {
+                void handleSendMessage(text);
+              }}
               onRegenerate={handleRegenerate}
             />
             <div ref={messagesEndRef} />
@@ -118,6 +122,8 @@ export function ChatWindow() {
           onSubmit={handleSendMessage}
           disabled={isSending}
           placeholder={isSending ? 'Sending…' : 'Ask anything'}
+          value={composerValue}
+          onChange={setComposerValue}
         />
       </div>
     </div>

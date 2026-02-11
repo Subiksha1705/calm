@@ -21,15 +21,25 @@ interface ChatInputProps {
   onSubmit: (message: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  value?: string;
+  onChange?: (value: string) => void;
 }
 
 export function ChatInput({
   onSubmit,
   disabled = false,
-  placeholder = 'Ask anything'
+  placeholder = 'Ask anything',
+  value,
+  onChange,
 }: ChatInputProps) {
-  const [value, setValue] = useState('');
+  const [internalValue, setInternalValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isControlled = typeof value === 'string';
+  const currentValue = isControlled ? value : internalValue;
+  const setValue = (next: string) => {
+    if (!isControlled) setInternalValue(next);
+    onChange?.(next);
+  };
 
   // Auto-resize textarea height
   useEffect(() => {
@@ -38,11 +48,11 @@ export function ChatInput({
       textarea.style.height = 'auto';
       textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
     }
-  }, [value]);
+  }, [currentValue]);
 
   const handleSubmit = () => {
-    if (value.trim() && !disabled) {
-      onSubmit(value.trim());
+    if (currentValue.trim() && !disabled) {
+      onSubmit(currentValue.trim());
       setValue('');
     }
   };
@@ -73,7 +83,7 @@ export function ChatInput({
         </button>
         <textarea
           ref={textareaRef}
-          value={value}
+          value={currentValue}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={disabled}
@@ -113,9 +123,9 @@ export function ChatInput({
 
         <button
           onClick={handleSubmit}
-          disabled={disabled || !value.trim()}
+          disabled={disabled || !currentValue.trim()}
           className={`flex-shrink-0 h-9 w-9 rounded-full grid place-items-center transition-colors ${
-            value.trim() && !disabled
+            currentValue.trim() && !disabled
               ? 'bg-gray-900 text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-white/90'
               : 'bg-gray-100 text-gray-400 dark:bg-white/10 dark:text-white/40 cursor-not-allowed'
           }`}

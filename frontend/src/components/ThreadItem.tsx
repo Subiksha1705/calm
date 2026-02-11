@@ -36,7 +36,7 @@ function summarizeTitle(text: string): string {
 export function ThreadItem({ thread, isActive = false, onClick, onRename, onDelete }: ThreadItemProps) {
   const title = summarizeTitle(thread.title || thread.preview || 'New chat');
 
-  const rootRef = useRef<HTMLButtonElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(title);
@@ -61,13 +61,30 @@ export function ThreadItem({ thread, isActive = false, onClick, onRename, onDele
   }, [menuOpen]);
 
   return (
-    <button
+    <div
       ref={rootRef}
-      onClick={() => {
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('[data-thread-actions="true"]')) return;
         setMenuOpen(false);
         onClick?.();
       }}
-      className={`group relative w-full text-left px-3 py-2 rounded-lg transition-colors ${
+      onMouseDown={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('[data-thread-actions="true"]')) return;
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setMenuOpen(false);
+          onClick?.();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      className={`group relative isolate w-full text-left px-3 py-2 rounded-lg transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 dark:focus-visible:ring-white/30 ${
+        menuOpen ? 'z-40' : ''
+      } ${
         isActive
           ? 'bg-gray-100 dark:bg-white/10'
           : 'hover:bg-gray-50 dark:hover:bg-white/10'
@@ -101,10 +118,22 @@ export function ThreadItem({ thread, isActive = false, onClick, onRename, onDele
       )}
 
       {/* Actions */}
-      <div className="absolute right-2 top-1/2 -translate-y-1/2">
+      <div
+        className="absolute right-2 top-1/2 -translate-y-1/2 z-50"
+        data-thread-actions="true"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <button
           type="button"
           aria-label="Thread actions"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
           onClick={(e) => {
             e.stopPropagation();
             setMenuOpen((v) => !v);
@@ -123,12 +152,21 @@ export function ThreadItem({ thread, isActive = false, onClick, onRename, onDele
 
         {menuOpen ? (
           <div
-            className="absolute right-0 mt-2 w-40 rounded-xl bg-white dark:bg-[#202123] border border-gray-200/70 dark:border-white/10 shadow-xl overflow-hidden z-20"
+            className="absolute right-0 mt-2 w-40 rounded-xl bg-white dark:bg-[#202123] border border-gray-200/70 dark:border-white/10 shadow-xl overflow-hidden z-[60]"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             <button
               type="button"
-              onClick={() => {
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
                 setDraft(title);
                 setIsEditing(true);
                 setMenuOpen(false);
@@ -139,7 +177,12 @@ export function ThreadItem({ thread, isActive = false, onClick, onRename, onDele
             </button>
             <button
               type="button"
-              onClick={() => {
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
                 setMenuOpen(false);
                 onDelete?.(thread.id);
               }}
@@ -150,6 +193,6 @@ export function ThreadItem({ thread, isActive = false, onClick, onRename, onDele
           </div>
         ) : null}
       </div>
-    </button>
+    </div>
   );
 }

@@ -55,14 +55,11 @@ export function ProfileMenu({ onAction }: { onAction?: () => void }) {
           </div>
           <button
             type="button"
-            onClick={() => {
-              setOpen(false);
-              onAction?.();
-              router.push('/settings');
-            }}
-            className="w-full text-left px-4 py-3 text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-white/10 transition-colors"
+            disabled
+            aria-disabled="true"
+            className="w-full text-left px-4 py-3 text-sm text-gray-400 dark:text-white/35 cursor-not-allowed bg-gray-50 dark:bg-white/5"
           >
-            Settings
+            Settings (coming soon)
           </button>
           <button
             type="button"
