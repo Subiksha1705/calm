@@ -61,7 +61,7 @@ export function Sidebar() {
   return (
     <>
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex flex-col w-[260px] h-screen bg-[rgba(255,255,255,0.05)] border-r border-white/10">
+      <aside className="hidden lg:flex flex-col w-[260px] h-screen bg-gray-50 dark:bg-[rgba(255,255,255,0.05)] border-r border-gray-200 dark:border-white/10">
         {/* Top: New Chat */}
         <div className="p-2">
           {/* TASK 3: New chat clears activeThread instead of creating thread */}
@@ -83,7 +83,7 @@ export function Sidebar() {
         />
 
         {/* Bottom: Profile */}
-        <div className="p-2 border-t border-white/10">
+        <div className="p-2 border-t border-gray-200 dark:border-white/10">
           <ProfileMenu />
         </div>
       </aside>
@@ -103,7 +103,7 @@ export function Sidebar() {
       {/* Mobile Menu Button */}
       <button
         onClick={() => setIsMobileDrawerOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-30 p-2 rounded-lg bg-[rgba(255,255,255,0.05)] shadow-md"
+        className="lg:hidden fixed top-4 left-4 z-30 p-2 rounded-lg bg-white/90 dark:bg-[rgba(255,255,255,0.05)] border border-gray-200 dark:border-white/10 shadow-md"
         aria-label="Open sidebar"
       >
         <svg

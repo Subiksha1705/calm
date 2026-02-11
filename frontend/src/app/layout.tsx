@@ -15,7 +15,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning >
       <body
-        className="antialiased bg-black text-white"
+        className="antialiased bg-gray-50 text-gray-900 dark:bg-[#202123] dark:text-gray-100"
       >
         <AuthProvider>{children}</AuthProvider>
       </body>

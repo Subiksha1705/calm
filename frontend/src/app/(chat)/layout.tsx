@@ -36,7 +36,7 @@ export default function ChatLayout({
 }) {
   return (
     <RequireAuth>
-      <div className="antialiased bg-[#202123] text-white">
+      <div className="antialiased bg-gray-50 text-gray-900 dark:bg-[#202123] dark:text-gray-100">
         <ChatProvider>
           <div className="flex h-screen overflow-hidden">
             <Suspense fallback={<SidebarFallback />}>{sidebar}</Suspense>
