@@ -79,6 +79,21 @@ export function MobileSidebarDrawer({
           <NewChatButton onClick={onNewChat} />
         </div>
 
+        <div className="px-2 pb-1">
+          <button
+            type="button"
+            disabled
+            aria-disabled="true"
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-400 dark:text-white/30 cursor-not-allowed"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+              <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            Search chats
+          </button>
+        </div>
+
         <div className="px-2 pb-1 space-y-1.5">
           <button
             type="button"
