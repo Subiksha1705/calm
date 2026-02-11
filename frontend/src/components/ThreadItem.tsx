@@ -29,6 +29,9 @@ function summarizeTitle(text: string): string {
     .replace(/[^\p{L}\p{N}\s]+/gu, '')
     .trim();
   if (!cleaned) return 'New chat';
+  const normalized = cleaned.toLowerCase();
+  if (normalized.includes('temporary')) return 'Temp chat';
+  if (normalized.includes('group')) return 'Group chat';
   const words = cleaned.split(/\s+/).slice(0, 3);
   return words.join(' ');
 }

@@ -80,12 +80,19 @@ export function ChatWindow() {
   const shouldCenterInput = activeThread === null || messages.length === 0;
 
   return (
-    <div className="relative flex flex-col h-full">
+    <div className="flex flex-col h-full">
+      <div className="h-14 px-4 md:px-6 flex items-center justify-between border-b border-gray-200 dark:border-white/10 bg-white/80 dark:bg-[#202123]/90 backdrop-blur">
+        <div className="min-w-0">
+          <span className="text-lg font-medium text-gray-900 dark:text-gray-100 truncate">Calm Sphere</span>
+        </div>
+      </div>
+
+      <div className="relative flex-1 min-h-0 flex flex-col">
       {/* 
         SCROLLABLE CONTENT AREA
         Only this section is conditional based on message state.
       */}
-      <div className={`${shouldCenterInput ? 'flex-1' : 'flex-1 overflow-y-auto'}`}>
+      <div className={`${shouldCenterInput ? 'flex-1 min-h-0' : 'flex-1 min-h-0 overflow-y-auto'}`}>
         {messages.length === 0 ? (
           <EmptyChatState />
         ) : (
@@ -125,6 +132,7 @@ export function ChatWindow() {
           value={composerValue}
           onChange={setComposerValue}
         />
+      </div>
       </div>
     </div>
   );
