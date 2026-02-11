@@ -25,6 +25,40 @@ interface ChatInputProps {
   onChange?: (value: string) => void;
 }
 
+type BrowserSpeechRecognition = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  maxAlternatives: number;
+  onstart: ((event: Event) => void) | null;
+  onend: ((event: Event) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onresult:
+    | ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string } & object> & { isFinal?: boolean }> }) => void)
+    | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+type SpeechRecognitionCtor = new () => BrowserSpeechRecognition;
+
+function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
+  if (typeof window === 'undefined') return null;
+  const maybeCtor =
+    (window as unknown as { SpeechRecognition?: SpeechRecognitionCtor }).SpeechRecognition ||
+    (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionCtor }).webkitSpeechRecognition;
+  return maybeCtor ?? null;
+}
+
+function mergeVoiceText(base: string, transcript: string): string {
+  const cleanTranscript = transcript.trim();
+  if (!cleanTranscript) return base;
+  if (!base.trim()) return cleanTranscript;
+  const needsSpace = !/\s$/.test(base);
+  return `${base}${needsSpace ? ' ' : ''}${cleanTranscript}`;
+}
+
 export function ChatInput({
   onSubmit,
   disabled = false,
@@ -33,13 +67,38 @@ export function ChatInput({
   onChange,
 }: ChatInputProps) {
   const [internalValue, setInternalValue] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const currentValueRef = useRef('');
+  const speechBaseRef = useRef('');
   const isControlled = typeof value === 'string';
   const currentValue = isControlled ? value : internalValue;
+
+  useEffect(() => {
+    currentValueRef.current = currentValue;
+  }, [currentValue]);
+
   const setValue = (next: string) => {
     if (!isControlled) setInternalValue(next);
     onChange?.(next);
   };
+
+  useEffect(() => {
+    setVoiceSupported(Boolean(getSpeechRecognitionCtor()));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      try {
+        recognitionRef.current?.abort();
+      } catch {
+        // no-op
+      }
+      recognitionRef.current = null;
+    };
+  }, []);
 
   // Auto-resize textarea height
   useEffect(() => {
@@ -52,6 +111,13 @@ export function ChatInput({
 
   const handleSubmit = () => {
     if (currentValue.trim() && !disabled) {
+      if (isListening) {
+        try {
+          recognitionRef.current?.stop();
+        } catch {
+          // no-op
+        }
+      }
       onSubmit(currentValue.trim());
       setValue('');
     }
@@ -61,6 +127,68 @@ export function ChatInput({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
+    }
+  };
+
+  const stopVoiceInput = () => {
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // no-op
+    }
+  };
+
+  const startVoiceInput = () => {
+    if (disabled) return;
+    if (!voiceSupported) return;
+
+    const RecognitionCtor = getSpeechRecognitionCtor();
+    if (!RecognitionCtor) return;
+
+    if (recognitionRef.current) {
+      stopVoiceInput();
+      return;
+    }
+
+    const recognition = new RecognitionCtor();
+    recognitionRef.current = recognition;
+    speechBaseRef.current = currentValueRef.current;
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onresult = (event) => {
+      let transcript = '';
+      for (let i = 0; i < event.results.length; i += 1) {
+        const alt = event.results[i]?.[0];
+        if (!alt?.transcript) continue;
+        transcript += alt.transcript;
+      }
+      const nextValue = mergeVoiceText(speechBaseRef.current, transcript);
+      setValue(nextValue);
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+      speechBaseRef.current = '';
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      recognitionRef.current = null;
+      setIsListening(false);
     }
   };
 
@@ -95,9 +223,17 @@ export function ChatInput({
 
         <button
           type="button"
-          disabled
-          className="flex-shrink-0 h-9 w-9 rounded-full grid place-items-center text-gray-400 dark:text-white/30 cursor-not-allowed"
-          aria-label="Voice input"
+          onClick={isListening ? stopVoiceInput : startVoiceInput}
+          disabled={disabled || !voiceSupported}
+          className={`flex-shrink-0 h-9 w-9 rounded-full grid place-items-center transition-colors ${
+            disabled || !voiceSupported
+              ? 'text-gray-400 dark:text-white/30 cursor-not-allowed'
+              : isListening
+                ? 'bg-red-500 text-white hover:bg-red-600'
+                : 'text-gray-600 dark:text-white/70 hover:bg-gray-100 dark:hover:bg-white/10'
+          }`}
+          aria-label={isListening ? 'Stop voice input' : 'Start voice input'}
+          title={voiceSupported ? 'Voice input' : 'Voice input not supported in this browser'}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path
