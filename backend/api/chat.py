@@ -57,6 +57,7 @@ class StreamChatRequest(BaseModel):
     user_id: Optional[str] = Field(default=None)
     thread_id: Optional[str] = Field(default=None)
     message: str
+    temporary: bool = Field(default=False)
 
 
 class ReadyMessageResponse(BaseModel):
@@ -144,6 +145,16 @@ def _stream_reply(*, thread_id: str, reply: str, is_new_thread: bool) -> Iterato
         if delay_s > 0:
             time.sleep(delay_s)
     yield _sse_message({"type": "done", "thread_id": thread_id})
+
+
+def _stream_temporary_reply(*, reply: str) -> Iterator[str]:
+    yield _sse_message({"type": "meta", "is_new_thread": False, "temporary": True})
+    delay_s = max(0.0, STREAM_CHAR_DELAY_MS / 1000.0)
+    for ch in reply:
+        yield _sse_message({"type": "delta", "delta": ch})
+        if delay_s > 0:
+            time.sleep(delay_s)
+    yield _sse_message({"type": "done", "temporary": True})
 
 
 def _start_chat_impl(*, user_id: str, message: str) -> StartChatResponse:
@@ -287,6 +298,18 @@ def stream_chat(
     user: Optional[AuthenticatedUser] = Depends(get_optional_user),
 ) -> StreamingResponse:
     user_id = _resolve_user_id(user=user, provided_user_id=request.user_id)
+    if request.temporary:
+        reply = llm_service.generate_ephemeral_response(request.message)
+        return StreamingResponse(
+            _stream_temporary_reply(reply=reply),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     resolved_thread_id, reply = _build_stream_payload(
         user_id=user_id,
         thread_id=request.thread_id,

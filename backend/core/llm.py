@@ -170,6 +170,59 @@ class LLMService:
             return self._safe_fallback_response(user_message=user_message)
         except Exception:
             return self._safe_fallback_response(user_message=user_message)
+
+    def generate_ephemeral_response(self, user_message: str) -> str:
+        """Generate a response without loading or persisting conversation history."""
+        if self._mock_mode:
+            return self._generate_mock_response(user_message)
+
+        try:
+            if not self._hugging_face_api_key:
+                return self._safe_fallback_response(user_message=user_message)
+            if self._client is None:
+                self._rebuild_client()
+            if self._client is None:
+                return self._safe_fallback_response(user_message=user_message)
+            client = self._client
+            history: List[Dict[str, str]] = []
+
+            if self._enable_risk and self._should_run_risk(user_message, history):
+                risk = self._run_risk(client=client, user_message=user_message, history=history)
+                if risk.get("overall_risk") == "high":
+                    return self._run_crisis_response(
+                        client=client,
+                        user_message=user_message,
+                        history=history,
+                        risk=risk,
+                    )
+                violence_assessment = self._run_violence_intent(
+                    client=client,
+                    user_message=user_message,
+                    history=history,
+                )
+                if self._should_run_violence_deescalation(
+                    risk=risk,
+                    violence_assessment=violence_assessment,
+                ):
+                    return self._run_violence_deescalation_response(
+                        client=client,
+                        user_message=user_message,
+                        history=history,
+                        risk=risk,
+                    )
+
+            emotion: Dict[str, Any] | None = None
+            if self._enable_emotion:
+                emotion = self._run_emotion(client=client, user_message=user_message)
+
+            return self._run_response(
+                client=client,
+                user_message=user_message,
+                history=history,
+                emotion=emotion,
+            ) or self._safe_fallback_response(user_message=user_message)
+        except Exception:
+            return self._safe_fallback_response(user_message=user_message)
     
     def _generate_mock_response(self, user_message: str) -> str:
         """Generate a mock response for development.

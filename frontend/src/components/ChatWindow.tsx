@@ -29,7 +29,7 @@ import { useChat } from '@/contexts/ChatContext';
 export function ChatWindow() {
   const router = useRouter();
   const pathname = usePathname();
-  const { activeThread, sendMessage, regenerateLast } = useChat();
+  const { activeThread, isTemporaryChat, sendMessage, regenerateLast, closeTemporaryChat } = useChat();
   const [isSending, setIsSending] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [composerValue, setComposerValue] = useState('');
@@ -57,6 +57,7 @@ export function ChatWindow() {
     const hadThread = Boolean(activeThread?.id);
     try {
       const threadId = await sendMessage(content);
+      if (!threadId) return;
       if (!hadThread && pathname === '/chat') {
         router.push(`/chat/${threadId}`);
       }
@@ -79,12 +80,29 @@ export function ChatWindow() {
   // Center input when thread is empty (new thread with no messages yet)
   const shouldCenterInput = activeThread === null || messages.length === 0;
 
+  const handleCloseTemporaryChat = () => {
+    closeTemporaryChat();
+    router.push('/chat');
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="h-14 px-4 md:px-6 flex items-center justify-between border-b border-gray-200 dark:border-white/10 bg-white/80 dark:bg-[#202123]/90 backdrop-blur">
         <div className="min-w-0">
           <span className="text-lg font-medium text-gray-900 dark:text-gray-100 truncate">Calm Sphere</span>
         </div>
+        {isTemporaryChat ? (
+          <button
+            type="button"
+            onClick={handleCloseTemporaryChat}
+            className="h-9 w-9 rounded-lg grid place-items-center text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+            aria-label="Close temporary chat"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        ) : null}
       </div>
 
       <div className="relative flex-1 min-h-0 flex flex-col">
@@ -94,7 +112,7 @@ export function ChatWindow() {
       */}
       <div className={`${shouldCenterInput ? 'flex-1 min-h-0' : 'flex-1 min-h-0 overflow-y-auto'}`}>
         {messages.length === 0 ? (
-          <EmptyChatState />
+          <EmptyChatState isTemporaryChat={isTemporaryChat} />
         ) : (
           <>
             <MessageList

@@ -119,14 +119,15 @@ interface ReadyMessageResponse {
 }
 
 type StreamEvent =
-  | { type: 'meta'; thread_id: string; is_new_thread: boolean }
+  | { type: 'meta'; thread_id?: string; is_new_thread: boolean; temporary?: boolean }
   | { type: 'delta'; delta: string }
-  | { type: 'done'; thread_id: string };
+  | { type: 'done'; thread_id?: string; temporary?: boolean };
 
 interface StreamChatParams {
   threadId?: string;
   content: string;
   userId: string;
+  temporary?: boolean;
   onThreadMeta?: (threadId: string, isNewThread: boolean) => void;
   onDelta?: (delta: string) => void;
 }
@@ -176,9 +177,10 @@ export const api = {
     threadId,
     content,
     userId,
+    temporary,
     onThreadMeta,
     onDelta,
-  }: StreamChatParams): Promise<{ threadId: string }> => {
+  }: StreamChatParams): Promise<{ threadId: string | null }> => {
     const token = getAuthTokenFromCookie();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -190,7 +192,7 @@ export const api = {
     const response = await fetch(buildApiUrl('/chat/stream'), {
       method: 'POST',
       headers,
-      body: JSON.stringify({ user_id: userId, thread_id: threadId, message: content }),
+      body: JSON.stringify({ user_id: userId, thread_id: threadId, message: content, temporary: Boolean(temporary) }),
     });
 
     if (!response.ok) {
@@ -214,6 +216,7 @@ export const api = {
     const decoder = new TextDecoder();
     let buffer = '';
     let resolvedThreadId: string | null = threadId ?? null;
+    let isTemporaryStream = Boolean(temporary);
 
     while (true) {
       const { done, value } = await reader.read();
@@ -226,8 +229,14 @@ export const api = {
         const evt = parseSseEventBlock(block);
         if (!evt) continue;
         if (evt.type === 'meta') {
-          resolvedThreadId = evt.thread_id;
-          onThreadMeta?.(evt.thread_id, evt.is_new_thread);
+          if (evt.temporary) {
+            isTemporaryStream = true;
+            continue;
+          }
+          if (evt.thread_id) {
+            resolvedThreadId = evt.thread_id;
+            onThreadMeta?.(evt.thread_id, evt.is_new_thread);
+          }
           continue;
         }
         if (evt.type === 'delta') {
@@ -235,9 +244,19 @@ export const api = {
           continue;
         }
         if (evt.type === 'done') {
-          resolvedThreadId = evt.thread_id;
+          if (evt.temporary) {
+            isTemporaryStream = true;
+            continue;
+          }
+          if (evt.thread_id) {
+            resolvedThreadId = evt.thread_id;
+          }
         }
       }
+    }
+
+    if (isTemporaryStream) {
+      return { threadId: null };
     }
 
     if (!resolvedThreadId) {

@@ -22,6 +22,7 @@ interface ChatContextType {
   threadListItems: ThreadListItem[];
   // Active thread (null when no thread selected)
   activeThread: Thread | null;
+  isTemporaryChat: boolean;
 
   userId: string | null;
   isThreadsLoading: boolean;
@@ -30,8 +31,10 @@ interface ChatContextType {
   // Thread actions (API-backed)
   refreshThreads: () => Promise<void>;
   selectThread: (threadId: string) => Promise<boolean>;
+  startTemporaryChat: () => void;
+  closeTemporaryChat: () => void;
   clearActiveThread: () => void;
-  sendMessage: (content: string) => Promise<string>; // returns threadId
+  sendMessage: (content: string) => Promise<string | null>; // returns threadId for persisted chats
   regenerateLast: () => Promise<void>;
 
   renameThread: (threadId: string, title: string) => Promise<void>;
@@ -58,6 +61,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [activeMessages, setActiveMessages] = useState<Message[]>([]);
   const [activeThreadMeta, setActiveThreadMeta] = useState<Omit<Thread, 'messages'> | null>(null);
+  const [isTemporaryChat, setIsTemporaryChat] = useState(false);
+  const [temporaryMessages, setTemporaryMessages] = useState<Message[]>([]);
   const [isThreadsLoading, setIsThreadsLoading] = useState(false);
   const [isThreadLoading, setIsThreadLoading] = useState(false);
   const activeThreadIdRef = useRef<string | null>(null);
@@ -74,6 +79,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       setActiveThreadId(null);
       setActiveMessages([]);
       setActiveThreadMeta(null);
+      setIsTemporaryChat(false);
+      setTemporaryMessages([]);
       setThreadListItems([]);
       setIsThreadLoading(false);
       setIsThreadsLoading(false);
@@ -149,6 +156,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const selectThread = useCallback(async (threadId: string) => {
     if (!userId) return false;
 
+    setIsTemporaryChat(false);
+    setTemporaryMessages([]);
     setActiveThreadId(threadId);
     const metaFromList = threadListItems.find((t) => t.id === threadId) || null;
     setActiveThreadMeta(
@@ -189,8 +198,51 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setActiveThreadMeta(null);
   }, []);
 
+  const startTemporaryChat = useCallback(() => {
+    setActiveThreadId(null);
+    setActiveMessages([]);
+    setActiveThreadMeta(null);
+    setIsTemporaryChat(true);
+    setTemporaryMessages([]);
+  }, []);
+
+  const closeTemporaryChat = useCallback(() => {
+    setIsTemporaryChat(false);
+    setTemporaryMessages([]);
+  }, []);
+
   const sendMessage = useCallback(async (content: string) => {
     if (!userId) throw new Error('User not initialized');
+
+    if (isTemporaryChat) {
+      const now = new Date().toISOString();
+      setTemporaryMessages((prev) => [
+        ...prev,
+        { role: 'user', content, timestamp: now },
+        { role: 'assistant', content: '', timestamp: now },
+      ]);
+
+      await api.streamChat({
+        content,
+        userId,
+        temporary: true,
+        onDelta: (delta) => {
+          const ts = new Date().toISOString();
+          setTemporaryMessages((prev) => {
+            if (prev.length === 0) return prev;
+            const idx = prev.length - 1;
+            const last = prev[idx];
+            if (last?.role !== 'assistant') {
+              return [...prev, { role: 'assistant', content: delta, timestamp: ts }];
+            }
+            const next = [...prev];
+            next[idx] = { ...last, content: `${last.content || ''}${delta}`, timestamp: ts };
+            return next;
+          });
+        },
+      });
+      return null;
+    }
 
     let threadId = activeThreadId;
     const now = new Date().toISOString();
@@ -244,10 +296,50 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     void refreshThreads();
     return threadId!;
-  }, [userId, activeThreadId, refreshThreads]);
+  }, [userId, activeThreadId, isTemporaryChat, refreshThreads]);
 
   const regenerateLast = useCallback(async () => {
-    if (!userId || !activeThreadId) return;
+    if (!userId) return;
+
+    if (isTemporaryChat) {
+      const lastUserMessage = [...temporaryMessages].reverse().find((m) => m.role === 'user')?.content;
+      if (!lastUserMessage) return;
+
+      const now = new Date().toISOString();
+      setTemporaryMessages((prev) => {
+        for (let i = prev.length - 1; i >= 0; i -= 1) {
+          if (prev[i]?.role === 'assistant') {
+            const next = [...prev];
+            next[i] = { ...next[i], content: '', timestamp: now };
+            return next;
+          }
+        }
+        return [...prev, { role: 'assistant', content: '', timestamp: now }];
+      });
+
+      await api.streamChat({
+        content: lastUserMessage,
+        userId,
+        temporary: true,
+        onDelta: (delta) => {
+          const ts = new Date().toISOString();
+          setTemporaryMessages((prev) => {
+            if (prev.length === 0) return prev;
+            const idx = prev.length - 1;
+            const last = prev[idx];
+            if (last?.role !== 'assistant') {
+              return [...prev, { role: 'assistant', content: delta, timestamp: ts }];
+            }
+            const next = [...prev];
+            next[idx] = { ...last, content: `${last.content || ''}${delta}`, timestamp: ts };
+            return next;
+          });
+        },
+      });
+      return;
+    }
+
+    if (!activeThreadId) return;
 
     const res = await api.regenerate(activeThreadId, userId);
     const now = new Date().toISOString();
@@ -271,7 +363,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     });
 
     void refreshThreads();
-  }, [userId, activeThreadId, refreshThreads]);
+  }, [userId, activeThreadId, isTemporaryChat, temporaryMessages, refreshThreads]);
 
   const renameThread = useCallback(
     async (threadId: string, title: string) => {
@@ -307,21 +399,27 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
 
   const activeThread = useMemo<Thread | null>(() => {
+    if (isTemporaryChat) {
+      return { id: 'temporary', createdAt: '', updatedAt: '', messages: temporaryMessages };
+    }
     if (!activeThreadId) return null;
     const meta = activeThreadMeta || { id: activeThreadId, createdAt: '', updatedAt: '' };
     return { ...meta, messages: activeMessages };
-  }, [activeThreadId, activeThreadMeta, activeMessages]);
+  }, [isTemporaryChat, temporaryMessages, activeThreadId, activeThreadMeta, activeMessages]);
 
   return (
     <ChatContext.Provider 
       value={{ 
         threadListItems,
         activeThread,
+        isTemporaryChat,
         userId,
         isThreadsLoading,
         isThreadLoading,
         refreshThreads,
         selectThread,
+        startTemporaryChat,
+        closeTemporaryChat,
         clearActiveThread,
         sendMessage,
         regenerateLast,

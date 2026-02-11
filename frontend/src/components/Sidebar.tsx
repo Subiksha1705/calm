@@ -29,12 +29,28 @@ import { ProfileMenu } from '@/components/ProfileMenu';
  */
 export function Sidebar() {
   const router = useRouter();
-  const { threadListItems, activeThread, selectThread, clearActiveThread, renameThread, deleteThread } = useChat();
+  const {
+    threadListItems,
+    activeThread,
+    selectThread,
+    startTemporaryChat,
+    closeTemporaryChat,
+    clearActiveThread,
+    renameThread,
+    deleteThread,
+  } = useChat();
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
   // Handle new chat - clear active thread and navigate to /chat
   const handleNewChat = () => {
+    closeTemporaryChat();
     clearActiveThread();
+    router.push('/chat');
+    setIsMobileDrawerOpen(false);
+  };
+
+  const handleTemporaryChat = () => {
+    startTemporaryChat();
     router.push('/chat');
     setIsMobileDrawerOpen(false);
   };
@@ -42,6 +58,7 @@ export function Sidebar() {
   // TASK 5: Thread continuation - Load messages when clicking sidebar thread
   // Also navigate to /chat/{threadId} for URL consistency
   const handleThreadSelect = (threadId: string) => {
+    closeTemporaryChat();
     void selectThread(threadId);
     router.push(`/chat/${threadId}`);
     // Close mobile drawer if open
@@ -100,7 +117,7 @@ export function Sidebar() {
         <div className="px-2 pb-1 space-y-1.5">
           <button
             type="button"
-            onClick={handleNewChat}
+            onClick={handleTemporaryChat}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -152,6 +169,7 @@ export function Sidebar() {
         activeThreadId={activeThread?.id || null}
         onThreadSelect={handleThreadSelect}
         onNewChat={handleNewChat}
+        onNewTemporaryChat={handleTemporaryChat}
         onRenameThread={handleRenameThread}
         onDeleteThread={handleDeleteThread}
       />
