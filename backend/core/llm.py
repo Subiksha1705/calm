@@ -162,8 +162,14 @@ class LLMService:
         """
         if self._mock_mode:
             return self._generate_mock_response(user_message)
-        
-        return self._generate_llm_response(user_id, thread_id, user_message)
+
+        try:
+            response = self._generate_llm_response(user_id, thread_id, user_message)
+            if isinstance(response, str) and response.strip():
+                return response.strip()
+            return self._safe_fallback_response(user_message=user_message)
+        except Exception:
+            return self._safe_fallback_response(user_message=user_message)
     
     def _generate_mock_response(self, user_message: str) -> str:
         """Generate a mock response for development.
@@ -175,6 +181,15 @@ class LLMService:
             Mock response string
         """
         return f"You said: {user_message}"
+
+    def _safe_fallback_response(self, *, user_message: str) -> str:
+        content = (user_message or "").strip()
+        if content:
+            return (
+                "I'm here and listening. I might have missed part of that, but I still want to understand. "
+                "Could you tell me a little more about what feels most important right now?"
+            )
+        return "I'm here with you. Share whatever is on your mind, and we can take it one step at a time."
     
     def _generate_llm_response(
         self, 
@@ -198,24 +213,42 @@ class LLMService:
             NotImplementedError: Real LLM integration not yet implemented
         """
         if self._store is None:
-            raise RuntimeError("LLMService store not configured")
+            return self._safe_fallback_response(user_message=user_message)
 
         if not self._hugging_face_api_key:
-            raise RuntimeError(
-                "Hugging Face API key not configured. Set HUGGING_FACE_API_KEY (or HF_API_TOKEN)."
-            )
+            return self._safe_fallback_response(user_message=user_message)
 
         if self._client is None:
             self._rebuild_client()
         if self._client is None:
-            raise RuntimeError("Hugging Face client not initialized")
+            return self._safe_fallback_response(user_message=user_message)
         client = self._client
         history = self._get_thread_history(user_id, thread_id, limit=10)
 
         if self._enable_risk and self._should_run_risk(user_message, history):
             risk = self._run_risk(client=client, user_message=user_message, history=history)
             if risk.get("overall_risk") == "high":
-                return self._high_risk_response()
+                return self._run_crisis_response(
+                    client=client,
+                    user_message=user_message,
+                    history=history,
+                    risk=risk,
+                )
+            violence_assessment = self._run_violence_intent(
+                client=client,
+                user_message=user_message,
+                history=history,
+            )
+            if self._should_run_violence_deescalation(
+                risk=risk,
+                violence_assessment=violence_assessment,
+            ):
+                return self._run_violence_deescalation_response(
+                    client=client,
+                    user_message=user_message,
+                    history=history,
+                    risk=risk,
+                )
 
         emotion: Dict[str, Any] | None = None
         if self._enable_emotion:
@@ -226,7 +259,7 @@ class LLMService:
             user_message=user_message,
             history=history,
             emotion=emotion,
-        )
+        ) or self._safe_fallback_response(user_message=user_message)
     
     def _get_thread_history(self, user_id: str, thread_id: str, *, limit: int) -> List[Dict[str, str]]:
         thread = self._store.get_thread(user_id, thread_id)
@@ -240,22 +273,174 @@ class LLMService:
         return normalized
 
     def _should_run_risk(self, user_message: str, history: List[Dict[str, str]]) -> bool:
-        text = (user_message or "").lower()
-        if len(text) >= 600:
+        # Always run model-based risk analysis when enabled.
+        # This avoids brittle keyword matching and lets the model infer intent from context.
+        return True
+
+    def _run_user_strengths_analysis(
+        self,
+        *,
+        client: HuggingFaceInferenceClient,
+        history: List[Dict[str, str]],
+        user_message: str,
+        limit: int = 2,
+    ) -> List[str]:
+        ctx = "\n".join(
+            f"{m['role']}: {m['content']}" for m in history[-10:] if m["role"] in {"user", "assistant"}
+        )
+        system = (
+            "You identify user strengths from conversation context for supportive reflection.\n"
+            "Return ONLY valid JSON with schema:\n"
+            '{"strengths":[string],"confidence":0.0}\n'
+            "Rules:\n"
+            "- Infer strengths from evidence in text (effort, resilience, values, actions).\n"
+            "- Use short phrases.\n"
+            "- If no clear evidence, return an empty list.\n"
+            "- No markdown, no extra keys."
+        )
+        content = client.chat_completions(
+            model=self._model_analysis,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": f"Context:\n{ctx}\n\nNew user message:\n{user_message}"},
+            ],
+            max_tokens=180,
+            temperature=0.0,
+        )
+        try:
+            payload = self._extract_first_json_object(content)
+            conf = float(payload.get("confidence", 0.0) or 0.0)
+            if conf < 0.35:
+                return []
+            raw = payload.get("strengths")
+            if not isinstance(raw, list):
+                return []
+            cleaned = [str(v).strip() for v in raw if str(v).strip()]
+            return cleaned[: max(limit, 0)]
+        except Exception:
+            return []
+
+    def _extract_recent_assistant_messages(self, history: List[Dict[str, str]], *, limit: int = 3) -> List[str]:
+        snippets: List[str] = []
+        for msg in reversed(history):
+            if msg.get("role") != "assistant":
+                continue
+            content = (msg.get("content") or "").strip()
+            if not content:
+                continue
+            compact = re.sub(r"\s+", " ", content)[:220]
+            snippets.append(compact)
+            if len(snippets) >= limit:
+                break
+        return snippets
+
+    def _run_user_pattern_analysis(
+        self,
+        *,
+        client: HuggingFaceInferenceClient,
+        history: List[Dict[str, str]],
+        user_message: str,
+    ) -> Dict[str, List[str]]:
+        ctx = "\n".join(
+            f"{m['role']}: {m['content']}" for m in history[-8:] if m["role"] in {"user", "assistant"}
+        )
+        system = (
+            "You analyze conversation patterns for a support chatbot.\n"
+            "Infer likely repeated patterns from context only. Do not use fixed taxonomies.\n"
+            "Return ONLY valid JSON with schema:\n"
+            '{"emotions":[string],"reactions":[string],"values":[string],"themes":[string],"confidence":0.0}\n'
+            "Rules:\n"
+            "- Use short natural-language phrases (2-6 words each).\n"
+            "- Prefer repeated signals, not one-off lines.\n"
+            "- If uncertain, return empty arrays.\n"
+            "- No markdown, no explanations, no extra keys."
+        )
+        content = client.chat_completions(
+            model=self._model_analysis,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": f"Context:\n{ctx}\n\nNew user message:\n{user_message}"},
+            ],
+            max_tokens=280,
+            temperature=0.0,
+        )
+        try:
+            payload = self._extract_first_json_object(content)
+            conf = float(payload.get("confidence", 0.0) or 0.0)
+            if conf < 0.35:
+                return {}
+            result: Dict[str, List[str]] = {}
+            for key in ("emotions", "reactions", "values", "themes"):
+                value = payload.get(key)
+                if isinstance(value, list):
+                    cleaned = [str(v).strip() for v in value if str(v).strip()]
+                    if cleaned:
+                        result[key] = cleaned[:3]
+            return result
+        except Exception:
+            return {}
+
+    def _run_violence_intent(
+        self,
+        *,
+        client: HuggingFaceInferenceClient,
+        user_message: str,
+        history: List[Dict[str, str]],
+    ) -> Dict[str, Any]:
+        ctx = "\n".join(
+            f"{m['role']}: {m['content']}" for m in history[-8:] if m["role"] in {"user", "assistant"}
+        )
+        system = (
+            "You are a safety classifier for other-directed violence in chat.\n"
+            "Return ONLY valid JSON with schema:\n"
+            '{"other_directed_violence":"none|venting|explicit","imminence":"low|medium|high","confidence":0.0}\n'
+            "Classify venting when violent language appears as emotional expression without clear plan.\n"
+            "Classify explicit when user directly wishes or states harm toward another person.\n"
+            "No markdown, no extra keys."
+        )
+        content = client.chat_completions(
+            model=self._model_risk,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": f"Context:\n{ctx}\n\nNew message:\n{user_message}"},
+            ],
+            max_tokens=180,
+            temperature=0.0,
+        )
+        try:
+            payload = self._extract_first_json_object(content)
+            cls = payload.get("other_directed_violence")
+            imminence = payload.get("imminence")
+            conf = float(payload.get("confidence", 0.0) or 0.0)
+            if cls not in {"none", "venting", "explicit"}:
+                cls = "none"
+            if imminence not in {"low", "medium", "high"}:
+                imminence = "low"
+            return {
+                "other_directed_violence": cls,
+                "imminence": imminence,
+                "confidence": conf,
+            }
+        except Exception:
+            return {
+                "other_directed_violence": "none",
+                "imminence": "low",
+                "confidence": 0.0,
+            }
+
+    def _should_run_violence_deescalation(
+        self,
+        *,
+        risk: Dict[str, Any],
+        violence_assessment: Dict[str, Any],
+    ) -> bool:
+        cls = violence_assessment.get("other_directed_violence", "none")
+        conf = float(violence_assessment.get("confidence", 0.0) or 0.0)
+        violence_score = float(risk.get("violence", 0.0) or 0.0)
+        self_harm_score = float(risk.get("self_harm", 0.0) or 0.0)
+        if cls in {"venting", "explicit"} and conf >= 0.35:
             return True
-        keywords = {
-            "suicide",
-            "kill myself",
-            "self harm",
-            "self-harm",
-            "hurt myself",
-            "end it",
-            "overdose",
-            "die",
-        }
-        if any(k in text for k in keywords):
-            return True
-        return False
+        return violence_score >= 0.65 and self_harm_score < 0.4
 
     def _extract_first_json_object(self, text: str) -> Dict[str, Any]:
         # Best-effort: find the first {...} block and parse it.
@@ -355,14 +540,73 @@ class LLMService:
         emotion_line = ""
         if emotion and isinstance(emotion.get("label"), str) and float(emotion.get("confidence", 0.0) or 0.0) >= 0.4:
             emotion_line = f"\nDetected emotion: {emotion['label']}."
+        strengths = self._run_user_strengths_analysis(
+            client=client,
+            history=history,
+            user_message=user_message,
+        )
+        recent_assistant = self._extract_recent_assistant_messages(history)
+        user_patterns = self._run_user_pattern_analysis(
+            client=client,
+            history=history,
+            user_message=user_message,
+        )
+        strengths_line = ""
+        anti_repeat_line = ""
+        pattern_line = ""
+        if strengths:
+            strengths_line = (
+                "\nKnown user strengths from prior messages (use gently, no guilt/shaming): "
+                + " | ".join(strengths)
+            )
+        if recent_assistant:
+            anti_repeat_line = (
+                "\nRecent assistant messages to avoid repeating verbatim: "
+                + " | ".join(recent_assistant)
+            )
+        if user_patterns:
+            pattern_parts: List[str] = []
+            for key in ("emotions", "reactions", "values", "themes"):
+                values = user_patterns.get(key)
+                if values:
+                    pattern_parts.append(f"{key}: {', '.join(values)}")
+            if pattern_parts:
+                pattern_line = (
+                    "\nObserved user patterns across recent messages (tentative, do not overstate): "
+                    + " | ".join(pattern_parts)
+                )
 
         system = (
             "You are Calm Sphere, a supportive mental health assistant.\n"
-            "Be empathetic, calm, and concise.\n"
+            "Be empathetic, calm, warm, and concise.\n"
+            "Sound like a caring friend while staying emotionally safe and grounded.\n"
             "Do not diagnose or give medical advice.\n"
             "Keep your response to 1–3 short paragraphs.\n"
+            "Be a careful listener first: reflect what you heard before offering suggestions.\n"
+            "When the user is mistaken, confused, unfair, or self-contradictory, respond politely and gently.\n"
+            "Do not scold, shame, or use a superior tone.\n"
+            "Use soft language like 'It might help to consider...' or 'Could it be that...'.\n"
+            "Prefer collaborative phrasing: 'we can' and 'let's explore'.\n"
+            "Understand the user through three lenses over time: feelings, reaction style, and values.\n"
+            "Prefer reflective language over labels: say 'I notice...' not 'you are...'.\n"
+            "One message can be noise; repeated themes are more meaningful.\n"
+            "If jealousy/comparison appears, explore unmet needs (recognition, belonging, worth) without shaming.\n"
+            "Validate emotions, but never validate violence, revenge, or harm.\n"
+            "If user expresses desire to harm others, do not agree, do not moralize; de-escalate and redirect to underlying feelings.\n"
+            "If the user expresses hopelessness, self-harm, or suicidal thoughts:\n"
+            "- Acknowledge their pain directly in the first line.\n"
+            "- Prioritize immediate safety and ask one clear safety-check question.\n"
+            "- Offer one tiny, concrete next step they can do now.\n"
+            "- Encourage reaching out to a trusted person or local crisis support.\n"
+            "- Never ignore or deflect these signals.\n"
+            "When helpful, reference the user's own strengths/achievements from earlier messages to build hope.\n"
+            "Do this in a validating way, never as blame, pressure, or guilt.\n"
+            "Use fresh wording each turn; do not repeat canned lines.\n"
             "If the user asks for a routine, give 3–5 concrete, realistic steps.\n"
             f"{emotion_line}"
+            f"{strengths_line}"
+            f"{pattern_line}"
+            f"{anti_repeat_line}"
         ).strip()
 
         messages: List[Dict[str, str]] = [{"role": "system", "content": system}]
@@ -370,20 +614,142 @@ class LLMService:
         messages.extend(history[-8:])
         messages.append({"role": "user", "content": user_message})
 
-        return client.chat_completions(
-            model=self._model_response,
-            messages=messages,
-            max_tokens=256,
-            temperature=0.7,
+        try:
+            content = client.chat_completions(
+                model=self._model_response,
+                messages=messages,
+                max_tokens=256,
+                temperature=0.7,
+            )
+            return (content or "").strip()
+        except Exception:
+            return self._safe_fallback_response(user_message=user_message)
+
+    def _run_crisis_response(
+        self,
+        *,
+        client: HuggingFaceInferenceClient,
+        user_message: str,
+        history: List[Dict[str, str]],
+        risk: Dict[str, Any],
+    ) -> str:
+        strengths = self._run_user_strengths_analysis(
+            client=client,
+            history=history,
+            user_message=user_message,
+            limit=2,
+        )
+        recent_assistant = self._extract_recent_assistant_messages(history, limit=3)
+
+        strengths_line = ""
+        if strengths:
+            strengths_line = (
+                "User strengths to reference gently when appropriate: "
+                + " | ".join(strengths)
+            )
+        repeat_guard_line = ""
+        if recent_assistant:
+            repeat_guard_line = (
+                "Do not reuse these prior assistant lines or close paraphrases: "
+                + " | ".join(recent_assistant)
+            )
+
+        system = (
+            "You are Calm Sphere, handling a high-risk self-harm/suicide conversation.\n"
+            "Write a compassionate, human response that feels present and personal.\n"
+            "Never sound scripted or repetitive.\n"
+            "Listen first and reflect the user's words before any instruction.\n"
+            "If the user is confused or contradictory, keep tone gentle and non-judgmental.\n"
+            "Required structure:\n"
+            "1) Validate pain in one short sentence.\n"
+            "2) Ask one direct safety-check question.\n"
+            "3) Offer one immediate, concrete step for the next 5 minutes.\n"
+            "4) Encourage contacting trusted support and crisis services.\n"
+            "If user location is unknown, say local emergency services; include 988 only as U.S. option.\n"
+            "Do not diagnose. Do not moralize. Do not guilt or shame.\n"
+            "Keep to 2-4 short paragraphs.\n"
+            "Use new wording each turn.\n"
+            f"{strengths_line}\n"
+            f"{repeat_guard_line}\n"
+            f"Risk classifier output: {json.dumps(risk, ensure_ascii=True)}"
+        ).strip()
+
+        messages: List[Dict[str, str]] = [{"role": "system", "content": system}]
+        messages.extend(history[-8:])
+        messages.append({"role": "user", "content": user_message})
+        try:
+            content = client.chat_completions(
+                model=self._model_response,
+                messages=messages,
+                max_tokens=300,
+                temperature=0.8,
+            )
+            return (content or "").strip() or self._safe_fallback_response(user_message=user_message)
+        except Exception:
+            return self._safe_fallback_response(user_message=user_message)
+
+    def _run_violence_deescalation_response(
+        self,
+        *,
+        client: HuggingFaceInferenceClient,
+        user_message: str,
+        history: List[Dict[str, str]],
+        risk: Dict[str, Any],
+    ) -> str:
+        recent_assistant = self._extract_recent_assistant_messages(history, limit=3)
+        user_patterns = self._run_user_pattern_analysis(
+            client=client,
+            history=history,
+            user_message=user_message,
         )
 
-    def _high_risk_response(self) -> str:
-        return (
-            "I’m really sorry you’re feeling this way, and I’m glad you told me.\n\n"
-            "If you’re in immediate danger or might harm yourself, please call your local emergency number right now. "
-            "If you’re in the U.S., you can call or text 988 (Suicide & Crisis Lifeline).\n\n"
-            "If you’re safe right now, can you tell me where you are and whether there’s someone you trust you can reach out to?"
-        )
+        repeat_guard_line = ""
+        if recent_assistant:
+            repeat_guard_line = (
+                "Do not reuse these prior assistant lines or close paraphrases: "
+                + " | ".join(recent_assistant)
+            )
+        pattern_line = ""
+        if user_patterns:
+            parts: List[str] = []
+            for key in ("emotions", "reactions", "values", "themes"):
+                values = user_patterns.get(key)
+                if values:
+                    parts.append(f"{key}: {', '.join(values)}")
+            if parts:
+                pattern_line = "Observed user patterns (tentative): " + " | ".join(parts)
+
+        system = (
+            "You are Calm Sphere, handling a user statement with other-directed violent ideation.\n"
+            "Primary rule: validate emotion, never validate harm.\n"
+            "Do NOT agree with violence, justify it, or provide harmful suggestions.\n"
+            "Do NOT shame the user.\n"
+            "Listen and reflect first; keep language polite even when rejecting harm.\n"
+            "If user framing is unfair or mistaken, gently reframe without blame.\n"
+            "Required structure:\n"
+            "1) Acknowledge emotional intensity in one sentence.\n"
+            "2) Clearly but calmly reject harm-focused framing.\n"
+            "3) Ask one exploratory question about what is underneath (hurt, fear, jealousy, being unseen, betrayal).\n"
+            "4) Offer one immediate de-escalation action for the next 5 minutes.\n"
+            "Keep response to 2 short paragraphs max.\n"
+            "Use soft, human language, not legal or clinical tone.\n"
+            f"{pattern_line}\n"
+            f"{repeat_guard_line}\n"
+            f"Risk classifier output: {json.dumps(risk, ensure_ascii=True)}"
+        ).strip()
+        messages: List[Dict[str, str]] = [{"role": "system", "content": system}]
+        messages.extend(history[-8:])
+        messages.append({"role": "user", "content": user_message})
+        try:
+            content = client.chat_completions(
+                model=self._model_response,
+                messages=messages,
+                max_tokens=260,
+                temperature=0.7,
+            )
+            return (content or "").strip() or self._safe_fallback_response(user_message=user_message)
+        except Exception:
+            return self._safe_fallback_response(user_message=user_message)
 
     def analyze_long_text(self, *, text: str) -> str:
         """Run long-context analysis using the configured analysis model.
