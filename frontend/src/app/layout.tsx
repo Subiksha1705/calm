@@ -6,9 +6,9 @@ export const metadata: Metadata = {
   title: "Calm Sphere - Mental Health Chatbot",
   description: "A supportive mental health chatbot with thread-based conversations",
   icons: {
-    icon: "/Gemini_Generated_Image_en79ysen79ysen79.png",
-    shortcut: "/Gemini_Generated_Image_en79ysen79ysen79.png",
-    apple: "/Gemini_Generated_Image_en79ysen79ysen79.png",
+    icon: "/calm.png",
+    shortcut: "/calm.png",
+    apple: "/calm.png",
   },
 };
 

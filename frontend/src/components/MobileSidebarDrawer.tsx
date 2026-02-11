@@ -65,7 +65,7 @@ export function MobileSidebarDrawer({
       >
         <div className="flex items-center gap-2 px-3 py-3">
           <Image
-            src="/Gemini_Generated_Image_en79ysen79ysen79.png"
+            src="/calm.png"
             alt="Calm Sphere logo"
             width={28}
             height={28}

@@ -82,7 +82,7 @@ export function Sidebar() {
       <aside className="hidden lg:flex flex-col w-[260px] h-screen bg-gray-50 dark:bg-[rgba(255,255,255,0.05)] border-r border-gray-200 dark:border-white/10">
         <div className="flex items-center gap-2 px-3 py-3">
           <Image
-            src="/Gemini_Generated_Image_en79ysen79ysen79.png"
+            src="/calm.png"
             alt="Calm Sphere logo"
             width={28}
             height={28}
