@@ -15,6 +15,7 @@ Processing flow:
 import json
 import os
 import time
+import threading
 from datetime import datetime, timezone
 from typing import Iterator, Optional, Union
 
@@ -101,6 +102,57 @@ def _save_assistant_reply(*, user_id: str, thread_id: str, message: str, reply: 
         )
 
 
+def _should_autotitle(current_title: str) -> bool:
+    return not (current_title or "").strip()
+
+
+def _autotitle_thread_background(*, user_id: str, thread_id: str, user_message: str, assistant_reply: str) -> None:
+    if not hasattr(conversation_store, "rename_thread"):
+        return
+    try:
+        thread = conversation_store.get_thread(user_id, thread_id) or {}
+    except Exception:
+        return
+
+    current_title = str(thread.get("title") or "").strip()
+    if not _should_autotitle(current_title):
+        return
+
+    history = []
+    for msg in (thread.get("messages") or [])[-6:]:
+        role = msg.get("role")
+        content = msg.get("content")
+        if role in {"user", "assistant"} and isinstance(content, str) and content.strip():
+            history.append({"role": role, "content": content})
+
+    title = llm_service.generate_thread_title(
+        user_message=user_message,
+        assistant_reply=assistant_reply,
+        history=history,
+    ).strip()
+    if not title:
+        return
+
+    try:
+        conversation_store.rename_thread(user_id, thread_id, title)
+    except Exception:
+        return
+
+
+def _maybe_autotitle_thread(*, user_id: str, thread_id: str, user_message: str, assistant_reply: str) -> None:
+    worker = threading.Thread(
+        target=_autotitle_thread_background,
+        kwargs={
+            "user_id": user_id,
+            "thread_id": thread_id,
+            "user_message": user_message,
+            "assistant_reply": assistant_reply,
+        },
+        daemon=True,
+    )
+    worker.start()
+
+
 def _build_stream_payload(*, user_id: str, thread_id: Optional[str], message: str) -> tuple[str, str]:
     if thread_id:
         reply = llm_service.generate_response(
@@ -109,6 +161,12 @@ def _build_stream_payload(*, user_id: str, thread_id: Optional[str], message: st
             user_message=message,
         )
         _save_assistant_reply(user_id=user_id, thread_id=thread_id, message=message, reply=reply)
+        _maybe_autotitle_thread(
+            user_id=user_id,
+            thread_id=thread_id,
+            user_message=message,
+            assistant_reply=reply,
+        )
         return thread_id, reply
 
     new_thread_id = str(uuid4())
@@ -130,6 +188,12 @@ def _build_stream_payload(*, user_id: str, thread_id: Optional[str], message: st
             _save_assistant_reply(user_id=user_id, thread_id=new_thread_id, message=message, reply=reply)
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to start chat thread")
+    _maybe_autotitle_thread(
+        user_id=user_id,
+        thread_id=new_thread_id,
+        user_message=message,
+        assistant_reply=reply,
+    )
     return new_thread_id, reply
 
 
@@ -197,6 +261,13 @@ def _start_chat_impl(*, user_id: str, message: str) -> StartChatResponse:
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to start chat thread")
 
+    _maybe_autotitle_thread(
+        user_id=user_id,
+        thread_id=thread_id,
+        user_message=message,
+        assistant_reply=reply,
+    )
+
     return StartChatResponse(thread_id=thread_id, reply=reply)
 
 
@@ -232,6 +303,13 @@ def _send_message_impl(*, user_id: str, thread_id: str, message: str) -> ChatRes
             status_code=404,
             detail=f"Thread '{thread_id}' not found for user '{user_id}'",
         )
+
+    _maybe_autotitle_thread(
+        user_id=user_id,
+        thread_id=thread_id,
+        user_message=message,
+        assistant_reply=reply,
+    )
 
     return ChatResponse(reply=reply)
 

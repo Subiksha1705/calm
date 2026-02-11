@@ -145,8 +145,8 @@ export function ChatWindow() {
       >
         <ChatInput
           onSubmit={handleSendMessage}
-          disabled={isSending}
-          placeholder={isSending ? 'Sending…' : 'Ask anything'}
+          sendDisabled={isSending}
+          placeholder="Ask anything"
           value={composerValue}
           onChange={setComposerValue}
         />

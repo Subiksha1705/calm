@@ -20,6 +20,7 @@ import { useState, useRef, useEffect, KeyboardEvent } from 'react';
 interface ChatInputProps {
   onSubmit: (message: string) => void;
   disabled?: boolean;
+  sendDisabled?: boolean;
   placeholder?: string;
   value?: string;
   onChange?: (value: string) => void;
@@ -62,6 +63,7 @@ function mergeVoiceText(base: string, transcript: string): string {
 export function ChatInput({
   onSubmit,
   disabled = false,
+  sendDisabled = false,
   placeholder = 'Ask anything',
   value,
   onChange,
@@ -110,7 +112,7 @@ export function ChatInput({
   }, [currentValue]);
 
   const handleSubmit = () => {
-    if (currentValue.trim() && !disabled) {
+    if (currentValue.trim() && !disabled && !sendDisabled) {
       if (isListening) {
         try {
           recognitionRef.current?.stop();
@@ -259,9 +261,9 @@ export function ChatInput({
 
         <button
           onClick={handleSubmit}
-          disabled={disabled || !currentValue.trim()}
+          disabled={disabled || sendDisabled || !currentValue.trim()}
           className={`flex-shrink-0 h-9 w-9 rounded-full grid place-items-center transition-colors ${
-            currentValue.trim() && !disabled
+            currentValue.trim() && !disabled && !sendDisabled
               ? 'bg-gray-900 text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-white/90'
               : 'bg-gray-100 text-gray-400 dark:bg-white/10 dark:text-white/40 cursor-not-allowed'
           }`}

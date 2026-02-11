@@ -223,6 +223,66 @@ class LLMService:
             ) or self._safe_fallback_response(user_message=user_message)
         except Exception:
             return self._safe_fallback_response(user_message=user_message)
+
+    def generate_thread_title(
+        self,
+        *,
+        user_message: str,
+        assistant_reply: str = "",
+        history: Optional[List[Dict[str, str]]] = None,
+    ) -> str:
+        """Generate a concise, meaningful thread title from conversation text."""
+        user_text = (user_message or "").strip()
+        assistant_text = (assistant_reply or "").strip()
+        if not user_text and not assistant_text:
+            return "New chat"
+
+        if self._mock_mode or not self._hugging_face_api_key:
+            return self._fallback_thread_title(user_text or assistant_text)
+
+        if self._client is None:
+            self._rebuild_client()
+        if self._client is None:
+            return self._fallback_thread_title(user_text or assistant_text)
+
+        context_lines: List[str] = []
+        for msg in (history or [])[-4:]:
+            role = (msg.get("role") or "").strip()
+            content = (msg.get("content") or "").strip()
+            if role in {"user", "assistant"} and content:
+                context_lines.append(f"{role}: {content}")
+        if user_text:
+            context_lines.append(f"user: {user_text}")
+        if assistant_text:
+            context_lines.append(f"assistant: {assistant_text}")
+        context_blob = "\n".join(context_lines[-6:])
+
+        system = (
+            "You write short chat titles.\n"
+            "Return ONLY the title text.\n"
+            "Rules:\n"
+            "- 3 to 6 words\n"
+            "- Specific and meaningful\n"
+            "- No quotes, no emojis, no punctuation at end"
+        )
+
+        try:
+            raw = self._client.chat_completions(
+                model=self._model_analysis or self._model_response,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": context_blob},
+                ],
+                max_tokens=24,
+                temperature=0.2,
+            )
+            cleaned = self._sanitize_thread_title(raw)
+            if cleaned:
+                return cleaned
+        except Exception:
+            pass
+
+        return self._fallback_thread_title(user_text or assistant_text)
     
     def _generate_mock_response(self, user_message: str) -> str:
         """Generate a mock response for development.
@@ -243,6 +303,36 @@ class LLMService:
                 "Could you tell me a little more about what feels most important right now?"
             )
         return "I'm here with you. Share whatever is on your mind, and we can take it one step at a time."
+
+    def _fallback_thread_title(self, text: str) -> str:
+        cleaned = re.sub(r"[\r\n]+", " ", (text or "")).strip()
+        if not cleaned:
+            return "New chat"
+        cleaned = re.sub(r"[^\w\s]", " ", cleaned)
+        words = [w for w in cleaned.split() if w]
+        if not words:
+            return "New chat"
+        picked = words[:5]
+        return self._sanitize_thread_title(" ".join(picked)) or "New chat"
+
+    def _sanitize_thread_title(self, text: str) -> str:
+        if not text:
+            return ""
+        title = text.strip().splitlines()[0]
+        title = title.strip().strip('"').strip("'")
+        title = re.sub(r"\s+", " ", title)
+        title = re.sub(r"[.!?;,:\-]+$", "", title).strip()
+        if not title:
+            return ""
+        words = title.split()
+        if len(words) > 6:
+            words = words[:6]
+        title = " ".join(words)
+        if not title:
+            return ""
+        if len(title) < 3:
+            return ""
+        return title
     
     def _generate_llm_response(
         self, 

@@ -13,18 +13,19 @@ import { useChat } from '@/contexts/ChatContext';
 export default function ChatThreadPage() {
   const params = useParams();
   const router = useRouter();
-  const { selectThread, isThreadLoading, activeThread } = useChat();
+  const { selectThread, isThreadLoading, activeThread, isTemporaryChat } = useChat();
 
   const threadId = params.threadId as string;
 
   useEffect(() => {
     if (!threadId) return;
+    if (isTemporaryChat) return;
     if (activeThread?.id === threadId) return;
     void (async () => {
       const ok = await selectThread(threadId);
       if (!ok) router.push('/chat');
     })();
-  }, [threadId, selectThread, router, activeThread?.id]);
+  }, [threadId, selectThread, router, activeThread?.id, isTemporaryChat]);
 
   if (isThreadLoading) {
     return (
@@ -36,4 +37,3 @@ export default function ChatThreadPage() {
 
   return <ChatWindow />;
 }
-
