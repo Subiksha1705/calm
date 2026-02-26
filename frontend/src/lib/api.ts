@@ -1,3 +1,6 @@
+import { setAuthToken } from '@/lib/authToken';
+import { auth } from '@/lib/firebase';
+
 export class ApiError extends Error {
   constructor(message: string, public statusCode?: number) {
     super(message);
@@ -28,6 +31,23 @@ function getAuthTokenFromCookie(): string | null {
   }
 }
 
+async function getAuthTokenForRequest(): Promise<string | null> {
+  const cookieToken = getAuthTokenFromCookie();
+  if (typeof window === 'undefined') return cookieToken;
+  const currentUser = auth.currentUser;
+  if (!currentUser) return cookieToken;
+
+  try {
+    const freshToken = await currentUser.getIdToken();
+    if (freshToken && freshToken !== cookieToken) {
+      setAuthToken(freshToken);
+    }
+    return freshToken || cookieToken;
+  } catch {
+    return cookieToken;
+  }
+}
+
 function withQuery(endpoint: string, query?: Record<string, string | undefined>): string {
   if (!query) return endpoint;
   const params = new URLSearchParams();
@@ -43,7 +63,7 @@ async function fetchApi<T>(
   options: RequestInit = {},
   query?: Record<string, string | undefined>
 ): Promise<T> {
-  const token = getAuthTokenFromCookie();
+  const token = await getAuthTokenForRequest();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
@@ -203,7 +223,7 @@ export const api = {
     onThreadMeta,
     onDelta,
   }: StreamChatParams): Promise<{ threadId: string | null }> => {
-    const token = getAuthTokenFromCookie();
+    const token = await getAuthTokenForRequest();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };

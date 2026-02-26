@@ -8,6 +8,7 @@ Frontend obtains an ID token via Firebase Auth and sends:
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Optional
 
 from fastapi import Depends, HTTPException
@@ -16,6 +17,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from firebase_admin import auth as firebase_auth
 
 from core.firebase_app import ensure_firebase_admin_initialized
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -39,8 +42,13 @@ def get_optional_user(
 
     ensure_firebase_admin_initialized()
     try:
-        decoded = firebase_auth.verify_id_token(credentials.credentials)
-    except Exception:
+        decoded = firebase_auth.verify_id_token(
+            credentials.credentials,
+            check_revoked=False,
+            clock_skew_seconds=60,
+        )
+    except Exception as exc:
+        logger.warning("Firebase ID token verification failed: %s", exc)
         raise HTTPException(status_code=401, detail="Invalid or expired auth token")
 
     uid = str(decoded.get("uid") or decoded.get("sub") or "")
