@@ -18,7 +18,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from core.config import get_settings
-from core.huggingface import HuggingFaceInferenceClient
+from core.llm_clients import ChatCompletionsClient, build_chat_clients
 
 _ENTITY_TYPO_PATTERNS = [
     # Jeffrey Epstein variants seen in user text.
@@ -66,10 +66,20 @@ class LLMService:
         model_emotion: str | None = None,
         model_risk: str | None = None,
         model_analysis: str | None = None,
+        model_response_by_provider: Dict[str, str] | None = None,
+        model_emotion_by_provider: Dict[str, str] | None = None,
+        model_risk_by_provider: Dict[str, str] | None = None,
+        model_analysis_by_provider: Dict[str, str] | None = None,
         enable_emotion: bool = True,
         enable_risk: bool = True,
+        llm_provider: str = "huggingface",
+        llm_fallback_providers: List[str] | None = None,
         hugging_face_api_key: str | None = None,
         hugging_face_base_url: str = "https://router.huggingface.co",
+        groq_api_key: str | None = None,
+        groq_base_url: str = "https://api.groq.com/openai/v1",
+        gemini_api_key: str | None = None,
+        gemini_base_url: str = "https://generativelanguage.googleapis.com",
         hugging_face_timeout_s: float = 30.0,
         hugging_face_max_attempts: int = 3,
         hugging_face_backoff_factor: float = 2.0,
@@ -88,27 +98,45 @@ class LLMService:
         self._model_emotion = model_emotion or "Qwen/Qwen2.5-7B-Instruct"
         self._model_risk = model_risk or "openai/gpt-oss-safeguard-20b"
         self._model_analysis = model_analysis or "meta-llama/Llama-3.1-70B-Instruct"
+        self._model_response_by_provider = model_response_by_provider or {}
+        self._model_emotion_by_provider = model_emotion_by_provider or {}
+        self._model_risk_by_provider = model_risk_by_provider or {}
+        self._model_analysis_by_provider = model_analysis_by_provider or {}
         self._enable_emotion = enable_emotion
         self._enable_risk = enable_risk
+        self._llm_provider = llm_provider
+        self._llm_fallback_providers = llm_fallback_providers or []
         self._hugging_face_api_key = hugging_face_api_key
         self._hugging_face_base_url = hugging_face_base_url
+        self._groq_api_key = groq_api_key
+        self._groq_base_url = groq_base_url
+        self._gemini_api_key = gemini_api_key
+        self._gemini_base_url = gemini_base_url
         self._hugging_face_timeout_s = hugging_face_timeout_s
         self._hugging_face_max_attempts = hugging_face_max_attempts
         self._hugging_face_backoff_factor = hugging_face_backoff_factor
-        self._client: HuggingFaceInferenceClient | None = None
+        self._clients: List[ChatCompletionsClient] = []
         self._rebuild_client()
 
     def _rebuild_client(self) -> None:
-        if not self._hugging_face_api_key:
-            self._client = None
-            return
-        self._client = HuggingFaceInferenceClient(
-            self._hugging_face_api_key,
-            base_url=self._hugging_face_base_url,
+        self._clients = build_chat_clients(
+            primary_provider=self._llm_provider,
+            fallback_providers=self._llm_fallback_providers,
+            hugging_face_api_key=self._hugging_face_api_key,
+            hugging_face_base_url=self._hugging_face_base_url,
+            groq_api_key=self._groq_api_key,
+            groq_base_url=self._groq_base_url,
+            gemini_api_key=self._gemini_api_key,
+            gemini_base_url=self._gemini_base_url,
             timeout_s=self._hugging_face_timeout_s,
             max_attempts=self._hugging_face_max_attempts,
             backoff_factor=self._hugging_face_backoff_factor,
         )
+
+    def _get_clients(self) -> List[ChatCompletionsClient]:
+        if not self._clients:
+            self._rebuild_client()
+        return self._clients
 
     def set_store(self, store: Any) -> None:
         self._store = store
@@ -122,9 +150,17 @@ class LLMService:
         model_emotion: str | None = None,
         model_risk: str | None = None,
         model_analysis: str | None = None,
+        model_response_by_provider: Dict[str, str] | None = None,
+        model_emotion_by_provider: Dict[str, str] | None = None,
+        model_risk_by_provider: Dict[str, str] | None = None,
+        model_analysis_by_provider: Dict[str, str] | None = None,
         enable_emotion: bool | None = None,
         enable_risk: bool | None = None,
+        llm_provider: str | None = None,
+        llm_fallback_providers: List[str] | None = None,
         hugging_face_api_key: str | None = None,
+        groq_api_key: str | None = None,
+        gemini_api_key: str | None = None,
         hugging_face_timeout_s: float | None = None,
         hugging_face_max_attempts: int | None = None,
         hugging_face_backoff_factor: float | None = None,
@@ -141,12 +177,28 @@ class LLMService:
             self._model_risk = model_risk
         if model_analysis is not None:
             self._model_analysis = model_analysis
+        if model_response_by_provider is not None:
+            self._model_response_by_provider = model_response_by_provider
+        if model_emotion_by_provider is not None:
+            self._model_emotion_by_provider = model_emotion_by_provider
+        if model_risk_by_provider is not None:
+            self._model_risk_by_provider = model_risk_by_provider
+        if model_analysis_by_provider is not None:
+            self._model_analysis_by_provider = model_analysis_by_provider
         if enable_emotion is not None:
             self._enable_emotion = enable_emotion
         if enable_risk is not None:
             self._enable_risk = enable_risk
+        if llm_provider is not None:
+            self._llm_provider = llm_provider
+        if llm_fallback_providers is not None:
+            self._llm_fallback_providers = llm_fallback_providers
         if hugging_face_api_key is not None:
             self._hugging_face_api_key = hugging_face_api_key
+        if groq_api_key is not None:
+            self._groq_api_key = groq_api_key
+        if gemini_api_key is not None:
+            self._gemini_api_key = gemini_api_key
         if hugging_face_timeout_s is not None:
             self._hugging_face_timeout_s = hugging_face_timeout_s
         if hugging_face_max_attempts is not None:
@@ -182,13 +234,23 @@ class LLMService:
         if self._mock_mode:
             return self._generate_mock_response(normalized_user_message)
 
-        try:
-            response = self._generate_llm_response(user_id, thread_id, normalized_user_message)
-            if isinstance(response, str) and response.strip():
-                return response.strip()
+        clients = self._get_clients()
+        if not clients:
             return self._safe_fallback_response(user_message=normalized_user_message)
-        except Exception:
-            return self._safe_fallback_response(user_message=normalized_user_message)
+
+        for client in clients:
+            try:
+                response = self._generate_llm_response(
+                    user_id,
+                    thread_id,
+                    normalized_user_message,
+                    client=client,
+                )
+                if isinstance(response, str) and response.strip():
+                    return response.strip()
+            except Exception:
+                continue
+        return self._safe_fallback_response(user_message=normalized_user_message)
 
     def generate_ephemeral_response(self, user_message: str) -> str:
         """Generate a response without loading or persisting conversation history."""
@@ -196,53 +258,53 @@ class LLMService:
         if self._mock_mode:
             return self._generate_mock_response(normalized_user_message)
 
-        try:
-            if not self._hugging_face_api_key:
-                return self._safe_fallback_response(user_message=normalized_user_message)
-            if self._client is None:
-                self._rebuild_client()
-            if self._client is None:
-                return self._safe_fallback_response(user_message=normalized_user_message)
-            client = self._client
-            history: List[Dict[str, str]] = []
+        clients = self._get_clients()
+        if not clients:
+            return self._safe_fallback_response(user_message=normalized_user_message)
 
-            if self._enable_risk and self._should_run_risk(normalized_user_message, history):
-                risk = self._run_risk(client=client, user_message=normalized_user_message, history=history)
-                if risk.get("overall_risk") == "high":
-                    return self._run_crisis_response(
+        history: List[Dict[str, str]] = []
+        for client in clients:
+            try:
+                if self._enable_risk and self._should_run_risk(normalized_user_message, history):
+                    risk = self._run_risk(client=client, user_message=normalized_user_message, history=history)
+                    if risk.get("overall_risk") == "high":
+                        return self._run_crisis_response(
+                            client=client,
+                            user_message=normalized_user_message,
+                            history=history,
+                            risk=risk,
+                        )
+                    violence_assessment = self._run_violence_intent(
                         client=client,
                         user_message=normalized_user_message,
                         history=history,
-                        risk=risk,
                     )
-                violence_assessment = self._run_violence_intent(
+                    if self._should_run_violence_deescalation(
+                        risk=risk,
+                        violence_assessment=violence_assessment,
+                    ):
+                        return self._run_violence_deescalation_response(
+                            client=client,
+                            user_message=normalized_user_message,
+                            history=history,
+                            risk=risk,
+                        )
+
+                emotion: Dict[str, Any] | None = None
+                if self._enable_emotion:
+                    emotion = self._run_emotion(client=client, user_message=normalized_user_message)
+
+                response = self._run_response(
                     client=client,
                     user_message=normalized_user_message,
                     history=history,
+                    emotion=emotion,
                 )
-                if self._should_run_violence_deescalation(
-                    risk=risk,
-                    violence_assessment=violence_assessment,
-                ):
-                    return self._run_violence_deescalation_response(
-                        client=client,
-                        user_message=normalized_user_message,
-                        history=history,
-                        risk=risk,
-                    )
-
-            emotion: Dict[str, Any] | None = None
-            if self._enable_emotion:
-                emotion = self._run_emotion(client=client, user_message=normalized_user_message)
-
-            return self._run_response(
-                client=client,
-                user_message=normalized_user_message,
-                history=history,
-                emotion=emotion,
-            ) or self._safe_fallback_response(user_message=normalized_user_message)
-        except Exception:
-            return self._safe_fallback_response(user_message=normalized_user_message)
+                if response and response.strip():
+                    return response
+            except Exception:
+                continue
+        return self._safe_fallback_response(user_message=normalized_user_message)
 
     def _normalize_user_message_text(self, user_message: str) -> str:
         text = user_message or ""
@@ -250,6 +312,18 @@ class LLMService:
         for pattern, replacement in _ENTITY_TYPO_PATTERNS:
             normalized = pattern.sub(replacement, normalized)
         return normalized
+
+    def _model_for(self, *, client: ChatCompletionsClient, purpose: str) -> str:
+        provider = (client.provider_name or "").strip().lower()
+        if purpose == "response":
+            return self._model_response_by_provider.get(provider) or self._model_response
+        if purpose == "emotion":
+            return self._model_emotion_by_provider.get(provider) or self._model_emotion
+        if purpose == "risk":
+            return self._model_risk_by_provider.get(provider) or self._model_risk
+        if purpose == "analysis":
+            return self._model_analysis_by_provider.get(provider) or self._model_analysis or self._model_response
+        return self._model_response
 
     def generate_thread_title(
         self,
@@ -264,12 +338,11 @@ class LLMService:
         if not user_text and not assistant_text:
             return "New chat"
 
-        if self._mock_mode or not self._hugging_face_api_key:
+        if self._mock_mode:
             return self._fallback_thread_title(user_text or assistant_text)
 
-        if self._client is None:
-            self._rebuild_client()
-        if self._client is None:
+        clients = self._get_clients()
+        if not clients:
             return self._fallback_thread_title(user_text or assistant_text)
 
         context_lines: List[str] = []
@@ -293,21 +366,22 @@ class LLMService:
             "- No quotes, no emojis, no punctuation at end"
         )
 
-        try:
-            raw = self._client.chat_completions(
-                model=self._model_analysis or self._model_response,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": context_blob},
-                ],
-                max_tokens=24,
-                temperature=0.2,
-            )
-            cleaned = self._sanitize_thread_title(raw)
-            if cleaned:
-                return cleaned
-        except Exception:
-            pass
+        for client in clients:
+            try:
+                raw = client.chat_completions(
+                    model=self._model_for(client=client, purpose="analysis"),
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": context_blob},
+                    ],
+                    max_tokens=24,
+                    temperature=0.2,
+                )
+                cleaned = self._sanitize_thread_title(raw)
+                if cleaned:
+                    return cleaned
+            except Exception:
+                continue
 
         return self._fallback_thread_title(user_text or assistant_text)
     
@@ -380,7 +454,9 @@ class LLMService:
         self, 
         user_id: str, 
         thread_id: str, 
-        user_message: str
+        user_message: str,
+        *,
+        client: ChatCompletionsClient,
     ) -> str:
         """Generate a real LLM response.
         
@@ -400,14 +476,6 @@ class LLMService:
         if self._store is None:
             return self._safe_fallback_response(user_message=user_message)
 
-        if not self._hugging_face_api_key:
-            return self._safe_fallback_response(user_message=user_message)
-
-        if self._client is None:
-            self._rebuild_client()
-        if self._client is None:
-            return self._safe_fallback_response(user_message=user_message)
-        client = self._client
         history = self._get_thread_history(user_id, thread_id, limit=10)
 
         if self._enable_risk and self._should_run_risk(user_message, history):
@@ -465,7 +533,7 @@ class LLMService:
     def _run_user_strengths_analysis(
         self,
         *,
-        client: HuggingFaceInferenceClient,
+        client: ChatCompletionsClient,
         history: List[Dict[str, str]],
         user_message: str,
         limit: int = 2,
@@ -484,7 +552,7 @@ class LLMService:
             "- No markdown, no extra keys."
         )
         content = client.chat_completions(
-            model=self._model_analysis,
+            model=self._model_for(client=client, purpose="analysis"),
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": f"Context:\n{ctx}\n\nNew user message:\n{user_message}"},
@@ -522,7 +590,7 @@ class LLMService:
     def _run_user_pattern_analysis(
         self,
         *,
-        client: HuggingFaceInferenceClient,
+        client: ChatCompletionsClient,
         history: List[Dict[str, str]],
         user_message: str,
     ) -> Dict[str, List[str]]:
@@ -541,7 +609,7 @@ class LLMService:
             "- No markdown, no explanations, no extra keys."
         )
         content = client.chat_completions(
-            model=self._model_analysis,
+            model=self._model_for(client=client, purpose="analysis"),
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": f"Context:\n{ctx}\n\nNew user message:\n{user_message}"},
@@ -568,7 +636,7 @@ class LLMService:
     def _run_violence_intent(
         self,
         *,
-        client: HuggingFaceInferenceClient,
+        client: ChatCompletionsClient,
         user_message: str,
         history: List[Dict[str, str]],
     ) -> Dict[str, Any]:
@@ -584,7 +652,7 @@ class LLMService:
             "No markdown, no extra keys."
         )
         content = client.chat_completions(
-            model=self._model_risk,
+            model=self._model_for(client=client, purpose="risk"),
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": f"Context:\n{ctx}\n\nNew message:\n{user_message}"},
@@ -636,7 +704,7 @@ class LLMService:
             raise ValueError("no JSON object found")
         return json.loads(match.group(0))
 
-    def _run_emotion(self, *, client: HuggingFaceInferenceClient, user_message: str) -> Dict[str, Any]:
+    def _run_emotion(self, *, client: ChatCompletionsClient, user_message: str) -> Dict[str, Any]:
         system = (
             "You are an emotion classifier.\n"
             "Return ONLY valid JSON with this schema:\n"
@@ -644,7 +712,7 @@ class LLMService:
             "No extra keys, no markdown, no explanations."
         )
         content = client.chat_completions(
-            model=self._model_emotion,
+            model=self._model_for(client=client, purpose="emotion"),
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user_message},
@@ -667,7 +735,7 @@ class LLMService:
     def _run_risk(
         self,
         *,
-        client: HuggingFaceInferenceClient,
+        client: ChatCompletionsClient,
         user_message: str,
         history: List[Dict[str, str]],
     ) -> Dict[str, Any]:
@@ -683,7 +751,7 @@ class LLMService:
             f"{m['role']}: {m['content']}" for m in history[-4:] if m["role"] in {"user", "assistant"}
         )
         content = client.chat_completions(
-            model=self._model_risk,
+            model=self._model_for(client=client, purpose="risk"),
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": f"Context:\n{ctx}\n\nNew message:\n{user_message}"},
@@ -717,7 +785,7 @@ class LLMService:
     def _run_response(
         self,
         *,
-        client: HuggingFaceInferenceClient,
+        client: ChatCompletionsClient,
         user_message: str,
         history: List[Dict[str, str]],
         emotion: Dict[str, Any] | None,
@@ -803,7 +871,7 @@ class LLMService:
 
         try:
             content = client.chat_completions(
-                model=self._model_response,
+                model=self._model_for(client=client, purpose="response"),
                 messages=messages,
                 max_tokens=256,
                 temperature=0.7,
@@ -815,7 +883,7 @@ class LLMService:
     def _run_crisis_response(
         self,
         *,
-        client: HuggingFaceInferenceClient,
+        client: ChatCompletionsClient,
         user_message: str,
         history: List[Dict[str, str]],
         risk: Dict[str, Any],
@@ -866,7 +934,7 @@ class LLMService:
         messages.append({"role": "user", "content": user_message})
         try:
             content = client.chat_completions(
-                model=self._model_response,
+                model=self._model_for(client=client, purpose="response"),
                 messages=messages,
                 max_tokens=300,
                 temperature=0.8,
@@ -878,7 +946,7 @@ class LLMService:
     def _run_violence_deescalation_response(
         self,
         *,
-        client: HuggingFaceInferenceClient,
+        client: ChatCompletionsClient,
         user_message: str,
         history: List[Dict[str, str]],
         risk: Dict[str, Any],
@@ -929,7 +997,7 @@ class LLMService:
         messages.append({"role": "user", "content": user_message})
         try:
             content = client.chat_completions(
-                model=self._model_response,
+                model=self._model_for(client=client, purpose="response"),
                 messages=messages,
                 max_tokens=260,
                 temperature=0.7,
@@ -945,21 +1013,17 @@ class LLMService:
         """
         if self._mock_mode:
             return "Mock analysis: ok"
-        if not self._hugging_face_api_key:
-            raise RuntimeError("Hugging Face API key not configured.")
-
-        if self._client is None:
-            self._rebuild_client()
-        if self._client is None:
-            raise RuntimeError("Hugging Face client not initialized")
-        client = self._client
+        clients = self._get_clients()
+        if not clients:
+            raise RuntimeError("No LLM provider is configured. Set API keys for Hugging Face, Groq, or Gemini.")
+        client = clients[0]
         system = (
             "You are an analysis assistant.\n"
             "Summarize key themes, risks, and actionable next steps.\n"
             "Be concise and structured with bullet points."
         )
         return client.chat_completions(
-            model=self._model_analysis,
+            model=self._model_for(client=client, purpose="analysis"),
             messages=[{"role": "system", "content": system}, {"role": "user", "content": text}],
             max_tokens=512,
             temperature=0.2,
@@ -976,12 +1040,11 @@ class LLMService:
         ]
         fallback = canned[abs(hash(date_key)) % len(canned)]
 
-        if self._mock_mode or not self._hugging_face_api_key:
+        if self._mock_mode:
             return fallback
 
-        if self._client is None:
-            self._rebuild_client()
-        if self._client is None:
+        clients = self._get_clients()
+        if not clients:
             return fallback
 
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -995,24 +1058,27 @@ class LLMService:
             "- avoid mentioning dates explicitly\n"
             "Return only the single line but should be meaningfully short."
         )
-        try:
-            content = self._client.chat_completions(
-                model=self._model_response,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": f"Generate today's line for {today}."},
-                ],
-                max_tokens=40,
-                temperature=0.8,
-            ).strip()
-            first_line = (content.splitlines()[0] if content else "").strip().strip('"')
-            if not first_line:
-                return fallback
-            words = first_line.split()
-            clamped = " ".join(words[:5]).strip()
-            return clamped or fallback
-        except Exception:
-            return fallback
+        for client in clients:
+            try:
+                content = client.chat_completions(
+                    model=self._model_for(client=client, purpose="response"),
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": f"Generate today's line for {today}."},
+                    ],
+                    max_tokens=40,
+                    temperature=0.8,
+                ).strip()
+                first_line = (content.splitlines()[0] if content else "").strip().strip('"')
+                if not first_line:
+                    continue
+                words = first_line.split()
+                clamped = " ".join(words[:5]).strip()
+                if clamped:
+                    return clamped
+            except Exception:
+                continue
+        return fallback
 
 
 # Global service instance
@@ -1025,10 +1091,20 @@ llm_service = LLMService(
     model_emotion=_settings.llm_model_emotion,
     model_risk=_settings.llm_model_risk,
     model_analysis=_settings.llm_model_analysis,
+    model_response_by_provider=_settings.llm_model_response_by_provider,
+    model_emotion_by_provider=_settings.llm_model_emotion_by_provider,
+    model_risk_by_provider=_settings.llm_model_risk_by_provider,
+    model_analysis_by_provider=_settings.llm_model_analysis_by_provider,
     enable_emotion=_settings.llm_enable_emotion,
     enable_risk=_settings.llm_enable_risk,
+    llm_provider=_settings.llm_provider,
+    llm_fallback_providers=_settings.llm_fallback_providers,
     hugging_face_api_key=_settings.hugging_face_api_key,
     hugging_face_base_url=_settings.hugging_face_base_url,
+    groq_api_key=_settings.groq_api_key,
+    groq_base_url=_settings.groq_base_url,
+    gemini_api_key=_settings.gemini_api_key,
+    gemini_base_url=_settings.gemini_base_url,
     hugging_face_timeout_s=_settings.hugging_face_timeout_s,
     hugging_face_max_attempts=_settings.hugging_face_max_attempts,
     hugging_face_backoff_factor=_settings.hugging_face_backoff_factor,

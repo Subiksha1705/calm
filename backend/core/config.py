@@ -51,12 +51,22 @@ class Settings:
     llm_model_emotion: str
     llm_model_risk: str
     llm_model_analysis: str
+    llm_model_response_by_provider: dict[str, str]
+    llm_model_emotion_by_provider: dict[str, str]
+    llm_model_risk_by_provider: dict[str, str]
+    llm_model_analysis_by_provider: dict[str, str]
 
     llm_enable_emotion: bool
     llm_enable_risk: bool
+    llm_provider: str
+    llm_fallback_providers: list[str]
 
     hugging_face_api_key: str | None
     hugging_face_base_url: str
+    groq_api_key: str | None
+    groq_base_url: str
+    gemini_api_key: str | None
+    gemini_base_url: str
     hugging_face_timeout_s: float
     hugging_face_max_attempts: int
     hugging_face_backoff_factor: float
@@ -80,11 +90,26 @@ def get_settings() -> Settings:
     llm_model_risk = os.getenv("LLM_MODEL_RISK") or "openai/gpt-oss-safeguard-20b"
     llm_model_analysis = os.getenv("LLM_MODEL_ANALYSIS") or "meta-llama/Llama-3.1-70B-Instruct"
 
+    def _provider_model_map(prefix: str) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for provider in ("gemini", "groq", "huggingface"):
+            value = os.getenv(f"{prefix}_{provider.upper()}")
+            if value and value.strip():
+                out[provider] = value.strip()
+        return out
+
+    llm_model_response_by_provider = _provider_model_map("LLM_MODEL_RESPONSE")
+    llm_model_emotion_by_provider = _provider_model_map("LLM_MODEL_EMOTION")
+    llm_model_risk_by_provider = _provider_model_map("LLM_MODEL_RISK")
+    llm_model_analysis_by_provider = _provider_model_map("LLM_MODEL_ANALYSIS")
+
     # Back-compat: `llm_model` historically meant the single model used for everything.
     llm_model = os.getenv("LLM_MODEL") or llm_model_response
 
     llm_enable_emotion = _bool(os.getenv("LLM_ENABLE_EMOTION"), default=False)
     llm_enable_risk = _bool(os.getenv("LLM_ENABLE_RISK"), default=True)
+    llm_provider = os.getenv("LLM_PROVIDER", "huggingface").strip().lower()
+    llm_fallback_providers = _csv(os.getenv("LLM_FALLBACK_PROVIDERS", ""))
 
     # Support multiple names used across docs/experiments.
     hugging_face_api_key = (
@@ -93,6 +118,10 @@ def get_settings() -> Settings:
         or os.getenv("HF_API_KEY")
     )
     hugging_face_base_url = os.getenv("HUGGING_FACE_BASE_URL", "https://router.huggingface.co")
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    groq_base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+    gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    gemini_base_url = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com")
     hugging_face_timeout_s = float(os.getenv("HUGGING_FACE_TIMEOUT_S", "12"))
     hugging_face_max_attempts = int(os.getenv("HUGGING_FACE_MAX_ATTEMPTS", "2"))
     hugging_face_backoff_factor = float(os.getenv("HUGGING_FACE_BACKOFF_FACTOR", "1.5"))
@@ -110,10 +139,20 @@ def get_settings() -> Settings:
         llm_model_emotion=llm_model_emotion,
         llm_model_risk=llm_model_risk,
         llm_model_analysis=llm_model_analysis,
+        llm_model_response_by_provider=llm_model_response_by_provider,
+        llm_model_emotion_by_provider=llm_model_emotion_by_provider,
+        llm_model_risk_by_provider=llm_model_risk_by_provider,
+        llm_model_analysis_by_provider=llm_model_analysis_by_provider,
         llm_enable_emotion=llm_enable_emotion,
         llm_enable_risk=llm_enable_risk,
+        llm_provider=llm_provider,
+        llm_fallback_providers=llm_fallback_providers,
         hugging_face_api_key=hugging_face_api_key,
         hugging_face_base_url=hugging_face_base_url,
+        groq_api_key=groq_api_key,
+        groq_base_url=groq_base_url,
+        gemini_api_key=gemini_api_key,
+        gemini_base_url=gemini_base_url,
         hugging_face_timeout_s=hugging_face_timeout_s,
         hugging_face_max_attempts=hugging_face_max_attempts,
         hugging_face_backoff_factor=hugging_face_backoff_factor,
