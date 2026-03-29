@@ -1,0 +1,25 @@
+# Production env template (Render)
+# Fill in values in Render dashboard; do NOT commit real secrets.
+
+# Core
+USE_FIREBASE=true
+FIREBASE_CREDENTIALS_JSON="REDACTED_JSON"
+
+# CORS
+CORS_ALLOW_ORIGINS="https://your-frontend-domain.tld"
+CORS_ALLOW_CREDENTIALS=true
+CORS_ALLOW_METHODS=GET,POST,PUT,PATCH,DELETE,OPTIONS
+CORS_ALLOW_HEADERS=*
+
+# LLM (Gemini primary, OpenAI fallback)
+GEMINI_API_KEY=REDACTED_GEMINI_KEY
+OPENAI_API_KEY=REDACTED_OPENAI_KEY
+LLM_PROVIDER=gemini
+LLM_FALLBACK_PROVIDERS=openai
+LLM_SINGLE_CALL_MODE=true
+LLM_MOCK_MODE=false
+LLM_MODEL_RESPONSE=gemini-2.5-flash
+LLM_MODEL_RESPONSE_CANDIDATES=gemini-2.5-flash,gemini-3-flash,gemini-2.5-flash-lite,gemini-3.1-flash-lite
+
+# Optional
+LOG_LEVEL=info

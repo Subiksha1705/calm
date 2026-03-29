@@ -14,11 +14,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import logging
 import re
 from typing import Any, Dict, List, Optional
 
 from core.config import get_settings
 from core.llm_clients import ChatCompletionsClient, build_chat_clients
+
+logger = logging.getLogger(__name__)
 
 _ENTITY_TYPO_PATTERNS = [
     # Jeffrey Epstein variants seen in user text.
@@ -153,6 +156,22 @@ class LLMService:
     def single_call_mode_enabled(self) -> bool:
         return bool(self._single_call_mode)
 
+    def _log_provider_error(
+        self,
+        *,
+        stage: str,
+        provider: str,
+        model: str | None,
+        exc: Exception,
+    ) -> None:
+        logger.warning(
+            "LLM error stage=%s provider=%s model=%s error=%s",
+            stage,
+            provider or "unknown",
+            model or "unknown",
+            str(exc),
+        )
+
     def set_store(self, store: Any) -> None:
         self._store = store
 
@@ -269,10 +288,12 @@ class LLMService:
             try:
                 if self._single_call_mode:
                     history = (
-                        self._get_thread_history(user_id, thread_id, limit=50)
+                        self._get_thread_history(user_id, thread_id, limit=0)
                         if self._store is not None
                         else []
                     )
+                    if len(history) > 50:
+                        history = [history[0]] + history[-49:]
                     reply, _insights = self._run_response_bundle(
                         client=client,
                         user_message=normalized_user_message,
@@ -304,7 +325,14 @@ class LLMService:
                 )
                 if isinstance(response, str) and response.strip():
                     return response.strip()
-            except Exception:
+            except Exception as exc:
+                provider = (client.provider_name or "").strip().lower()
+                self._log_provider_error(
+                    stage="generate_response",
+                    provider=provider,
+                    model=self._model_for(client=client, purpose="response"),
+                    exc=exc,
+                )
                 continue
         return self._safe_fallback_response(user_message=normalized_user_message)
 
@@ -326,10 +354,12 @@ class LLMService:
             return self._safe_fallback_response(user_message=normalized_user_message), {}
 
         history = (
-            self._get_thread_history(user_id, thread_id, limit=50)
+            self._get_thread_history(user_id, thread_id, limit=0)
             if self._store is not None
             else []
         )
+        if len(history) > 50:
+            history = [history[0]] + history[-49:]
         for client in clients:
             try:
                 reply, insights = self._run_response_bundle(
@@ -339,7 +369,14 @@ class LLMService:
                 )
                 if reply:
                     return reply, insights
-            except Exception:
+            except Exception as exc:
+                provider = (client.provider_name or "").strip().lower()
+                self._log_provider_error(
+                    stage="generate_response_bundle",
+                    provider=provider,
+                    model=self._model_for(client=client, purpose="response"),
+                    exc=exc,
+                )
                 continue
         return self._safe_fallback_response(user_message=normalized_user_message), {}
 
@@ -412,7 +449,14 @@ class LLMService:
                 )
                 if response and response.strip():
                     return response
-            except Exception:
+            except Exception as exc:
+                provider = (client.provider_name or "").strip().lower()
+                self._log_provider_error(
+                    stage="generate_ephemeral_response",
+                    provider=provider,
+                    model=self._model_for(client=client, purpose="response"),
+                    exc=exc,
+                )
                 continue
         return self._safe_fallback_response(user_message=normalized_user_message)
 
@@ -1041,6 +1085,13 @@ class LLMService:
                 if content:
                     break
             except Exception as exc:
+                provider = (client.provider_name or "").strip().lower()
+                self._log_provider_error(
+                    stage="bundle_call",
+                    provider=provider,
+                    model=model,
+                    exc=exc,
+                )
                 last_error = exc
                 continue
         if not content:
