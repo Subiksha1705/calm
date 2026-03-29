@@ -303,7 +303,12 @@ def _start_chat_impl(*, user_id: str, message: str) -> StartChatResponse:
         assistant_reply=reply,
     )
 
-    return StartChatResponse(thread_id=thread_id, reply=reply)
+    response = StartChatResponse(thread_id=thread_id, reply=reply)
+    if insights:
+        payload = response.model_dump()
+        payload["insights"] = insights
+        return payload  # type: ignore[return-value]
+    return response
 
 
 def _send_message_impl(*, user_id: str, thread_id: str, message: str) -> ChatResponse:
@@ -347,7 +352,12 @@ def _send_message_impl(*, user_id: str, thread_id: str, message: str) -> ChatRes
         assistant_reply=reply,
     )
 
-    return ChatResponse(reply=reply)
+    response = ChatResponse(reply=reply)
+    if insights:
+        payload = response.model_dump()
+        payload["insights"] = insights
+        return payload  # type: ignore[return-value]
+    return response
 
 
 def _regenerate_impl(*, user_id: str, thread_id: str) -> ChatResponse:
@@ -374,7 +384,12 @@ def _regenerate_impl(*, user_id: str, thread_id: str) -> ChatResponse:
         )
 
     _apply_insights(user_id=user_id, thread_id=thread_id, insights=insights)
-    return ChatResponse(reply=reply)
+    response = ChatResponse(reply=reply)
+    if insights:
+        payload = response.model_dump()
+        payload["insights"] = insights
+        return payload  # type: ignore[return-value]
+    return response
 
 
 @router.post("/start", response_model=StartChatResponse)

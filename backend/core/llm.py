@@ -172,6 +172,15 @@ class LLMService:
             str(exc),
         )
 
+    def _log_no_clients(self, *, stage: str) -> None:
+        logger.error(
+            "LLM error stage=%s provider_clients=0 (check GEMINI_API_KEY/OPENAI_API_KEY and LLM_PROVIDER)",
+            stage,
+        )
+
+    def _log_mock_mode(self, *, stage: str) -> None:
+        logger.info("LLM mock_mode=true stage=%s (returning mock response)", stage)
+
     def set_store(self, store: Any) -> None:
         self._store = store
 
@@ -278,10 +287,12 @@ class LLMService:
         normalized_user_message = self._normalize_user_message_text(user_message)
 
         if self._mock_mode:
+            self._log_mock_mode(stage="generate_response")
             return self._generate_mock_response(normalized_user_message)
 
         clients = self._get_clients()
         if not clients:
+            self._log_no_clients(stage="generate_response")
             return self._safe_fallback_response(user_message=normalized_user_message)
 
         for client in clients:
@@ -347,10 +358,12 @@ class LLMService:
         normalized_user_message = self._normalize_user_message_text(user_message)
 
         if self._mock_mode:
+            self._log_mock_mode(stage="generate_response_bundle")
             return self._generate_mock_response(normalized_user_message), {}
 
         clients = self._get_clients()
         if not clients:
+            self._log_no_clients(stage="generate_response_bundle")
             return self._safe_fallback_response(user_message=normalized_user_message), {}
 
         history = (
@@ -384,10 +397,12 @@ class LLMService:
         """Generate a response without loading or persisting conversation history."""
         normalized_user_message = self._normalize_user_message_text(user_message)
         if self._mock_mode:
+            self._log_mock_mode(stage="generate_ephemeral_response")
             return self._generate_mock_response(normalized_user_message)
 
         clients = self._get_clients()
         if not clients:
+            self._log_no_clients(stage="generate_ephemeral_response")
             return self._safe_fallback_response(user_message=normalized_user_message)
 
         history: List[Dict[str, str]] = []
