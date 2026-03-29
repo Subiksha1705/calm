@@ -48,6 +48,7 @@ class Settings:
     llm_mock_mode: bool
     llm_model: str
     llm_model_response: str
+    llm_model_response_candidates: list[str]
     llm_model_emotion: str
     llm_model_risk: str
     llm_model_analysis: str
@@ -58,6 +59,8 @@ class Settings:
 
     llm_enable_emotion: bool
     llm_enable_risk: bool
+    llm_low_cost_mode: bool
+    llm_single_call_mode: bool
     llm_provider: str
     llm_fallback_providers: list[str]
 
@@ -67,6 +70,8 @@ class Settings:
     groq_base_url: str
     gemini_api_key: str | None
     gemini_base_url: str
+    openai_api_key: str | None
+    openai_base_url: str
     hugging_face_timeout_s: float
     hugging_face_max_attempts: int
     hugging_face_backoff_factor: float
@@ -85,7 +90,13 @@ def get_settings() -> Settings:
     cors_allow_headers = _csv(os.getenv("CORS_ALLOW_HEADERS", "*"))
 
     llm_mock_mode = _bool(os.getenv("LLM_MOCK_MODE"), default=True)
-    llm_model_response = os.getenv("LLM_MODEL_RESPONSE") or os.getenv("LLM_MODEL") or "meta-llama/Llama-3.2-3B-Instruct"
+    llm_model_response = os.getenv("LLM_MODEL_RESPONSE") or os.getenv("LLM_MODEL") or "gemini-2.5-flash"
+    llm_model_response_candidates = _csv(
+        os.getenv(
+            "LLM_MODEL_RESPONSE_CANDIDATES",
+            "gemini-2.5-flash,gemini-3-flash,gemini-2.5-flash-lite,gemini-3.1-flash-lite",
+        )
+    )
     llm_model_emotion = os.getenv("LLM_MODEL_EMOTION") or "Qwen/Qwen2.5-7B-Instruct"
     llm_model_risk = os.getenv("LLM_MODEL_RISK") or "openai/gpt-oss-safeguard-20b"
     llm_model_analysis = os.getenv("LLM_MODEL_ANALYSIS") or "meta-llama/Llama-3.1-70B-Instruct"
@@ -108,8 +119,10 @@ def get_settings() -> Settings:
 
     llm_enable_emotion = _bool(os.getenv("LLM_ENABLE_EMOTION"), default=False)
     llm_enable_risk = _bool(os.getenv("LLM_ENABLE_RISK"), default=True)
-    llm_provider = os.getenv("LLM_PROVIDER", "huggingface").strip().lower()
-    llm_fallback_providers = _csv(os.getenv("LLM_FALLBACK_PROVIDERS", ""))
+    llm_low_cost_mode = _bool(os.getenv("LLM_LOW_COST_MODE"), default=False)
+    llm_single_call_mode = _bool(os.getenv("LLM_SINGLE_CALL_MODE"), default=True)
+    llm_provider = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
+    llm_fallback_providers = _csv(os.getenv("LLM_FALLBACK_PROVIDERS", "openai"))
 
     # Support multiple names used across docs/experiments.
     hugging_face_api_key = (
@@ -122,6 +135,8 @@ def get_settings() -> Settings:
     groq_base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
     gemini_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     gemini_base_url = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com")
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    openai_base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     hugging_face_timeout_s = float(os.getenv("HUGGING_FACE_TIMEOUT_S", "12"))
     hugging_face_max_attempts = int(os.getenv("HUGGING_FACE_MAX_ATTEMPTS", "2"))
     hugging_face_backoff_factor = float(os.getenv("HUGGING_FACE_BACKOFF_FACTOR", "1.5"))
@@ -136,6 +151,7 @@ def get_settings() -> Settings:
         llm_mock_mode=llm_mock_mode,
         llm_model=llm_model,
         llm_model_response=llm_model_response,
+        llm_model_response_candidates=llm_model_response_candidates,
         llm_model_emotion=llm_model_emotion,
         llm_model_risk=llm_model_risk,
         llm_model_analysis=llm_model_analysis,
@@ -145,6 +161,8 @@ def get_settings() -> Settings:
         llm_model_analysis_by_provider=llm_model_analysis_by_provider,
         llm_enable_emotion=llm_enable_emotion,
         llm_enable_risk=llm_enable_risk,
+        llm_low_cost_mode=llm_low_cost_mode,
+        llm_single_call_mode=llm_single_call_mode,
         llm_provider=llm_provider,
         llm_fallback_providers=llm_fallback_providers,
         hugging_face_api_key=hugging_face_api_key,
@@ -153,6 +171,8 @@ def get_settings() -> Settings:
         groq_base_url=groq_base_url,
         gemini_api_key=gemini_api_key,
         gemini_base_url=gemini_base_url,
+        openai_api_key=openai_api_key,
+        openai_base_url=openai_base_url,
         hugging_face_timeout_s=hugging_face_timeout_s,
         hugging_face_max_attempts=hugging_face_max_attempts,
         hugging_face_backoff_factor=hugging_face_backoff_factor,

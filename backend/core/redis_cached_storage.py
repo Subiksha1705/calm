@@ -168,6 +168,11 @@ class RedisCachedConversationStore:
         self._invalidate_thread(user_id, thread_id)
         return replaced
 
+    def update_thread_insights(self, user_id: str, thread_id: str, insights: dict) -> bool:
+        updated = bool(self._base.update_thread_insights(user_id, thread_id, insights))
+        self._invalidate_thread(user_id, thread_id)
+        return updated
+
     def delete_thread(self, user_id: str, thread_id: str) -> bool:
         ok = bool(self._base.delete_thread(user_id, thread_id))
         self._invalidate_thread(user_id, thread_id)

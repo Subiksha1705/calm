@@ -258,6 +258,25 @@ class InMemoryConversationStore:
             assistant_content=assistant_content,
         )
         return {"thread_id": thread_id, **exchange}
+
+    def update_thread_insights(
+        self,
+        user_id: str,
+        thread_id: str,
+        insights: Dict[str, Any],
+    ) -> bool:
+        """Store the latest analysis bundle for a thread (overwrites previous)."""
+        if user_id not in self._threads:
+            raise KeyError(f"User '{user_id}' not found")
+        if thread_id not in self._threads[user_id]:
+            raise KeyError(f"Thread '{thread_id}' not found for user '{user_id}'")
+
+        now = datetime.utcnow().isoformat() + "Z"
+        thread = self._threads[user_id][thread_id]
+        thread["insights"] = insights
+        thread["last_insights_updated"] = now
+        thread["last_updated"] = now
+        return True
     
     def get_thread(self, user_id: str, thread_id: str) -> Optional[Dict[str, Any]]:
         """Get a thread by user and thread ID.

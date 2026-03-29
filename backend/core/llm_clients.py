@@ -269,6 +269,8 @@ def _normalize_provider_name(provider: str | None) -> str:
     value = (provider or "").strip().lower()
     if value in {"hf", "huggingface", "hugging_face"}:
         return "huggingface"
+    if value in {"openai", "oai"}:
+        return "openai"
     if value in {"groq"}:
         return "groq"
     if value in {"gemini", "google"}:
@@ -286,6 +288,8 @@ def build_chat_clients(
     groq_base_url: str,
     gemini_api_key: str | None,
     gemini_base_url: str,
+    openai_api_key: str | None,
+    openai_base_url: str,
     timeout_s: float,
     max_attempts: int,
     backoff_factor: float,
@@ -312,6 +316,18 @@ def build_chat_clients(
                     provider_name="huggingface",
                     api_key=hugging_face_api_key,
                     base_url=hf_base + "/v1",
+                    timeout_s=timeout_s,
+                    max_attempts=max_attempts,
+                    backoff_factor=backoff_factor,
+                )
+            )
+            continue
+        if provider == "openai" and openai_api_key:
+            clients.append(
+                OpenAICompatibleClient(
+                    provider_name="openai",
+                    api_key=openai_api_key,
+                    base_url=(openai_base_url or "https://api.openai.com/v1").rstrip("/"),
                     timeout_s=timeout_s,
                     max_attempts=max_attempts,
                     backoff_factor=backoff_factor,

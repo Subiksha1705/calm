@@ -63,6 +63,7 @@ class LLMService:
         mock_mode: bool = True,
         model_name: str = "meta-llama/Llama-3.2-3B-Instruct",
         model_response: str | None = None,
+        model_response_candidates: List[str] | None = None,
         model_emotion: str | None = None,
         model_risk: str | None = None,
         model_analysis: str | None = None,
@@ -72,6 +73,8 @@ class LLMService:
         model_analysis_by_provider: Dict[str, str] | None = None,
         enable_emotion: bool = True,
         enable_risk: bool = True,
+        low_cost_mode: bool = False,
+        single_call_mode: bool = False,
         llm_provider: str = "huggingface",
         llm_fallback_providers: List[str] | None = None,
         hugging_face_api_key: str | None = None,
@@ -80,6 +83,8 @@ class LLMService:
         groq_base_url: str = "https://api.groq.com/openai/v1",
         gemini_api_key: str | None = None,
         gemini_base_url: str = "https://generativelanguage.googleapis.com",
+        openai_api_key: str | None = None,
+        openai_base_url: str = "https://api.openai.com/v1",
         hugging_face_timeout_s: float = 30.0,
         hugging_face_max_attempts: int = 3,
         hugging_face_backoff_factor: float = 2.0,
@@ -95,6 +100,7 @@ class LLMService:
         self._mock_mode = mock_mode
         self._model_name = model_name
         self._model_response = model_response or model_name
+        self._model_response_candidates = model_response_candidates or []
         self._model_emotion = model_emotion or "Qwen/Qwen2.5-7B-Instruct"
         self._model_risk = model_risk or "openai/gpt-oss-safeguard-20b"
         self._model_analysis = model_analysis or "meta-llama/Llama-3.1-70B-Instruct"
@@ -104,6 +110,8 @@ class LLMService:
         self._model_analysis_by_provider = model_analysis_by_provider or {}
         self._enable_emotion = enable_emotion
         self._enable_risk = enable_risk
+        self._low_cost_mode = low_cost_mode
+        self._single_call_mode = single_call_mode
         self._llm_provider = llm_provider
         self._llm_fallback_providers = llm_fallback_providers or []
         self._hugging_face_api_key = hugging_face_api_key
@@ -112,6 +120,8 @@ class LLMService:
         self._groq_base_url = groq_base_url
         self._gemini_api_key = gemini_api_key
         self._gemini_base_url = gemini_base_url
+        self._openai_api_key = openai_api_key
+        self._openai_base_url = openai_base_url
         self._hugging_face_timeout_s = hugging_face_timeout_s
         self._hugging_face_max_attempts = hugging_face_max_attempts
         self._hugging_face_backoff_factor = hugging_face_backoff_factor
@@ -128,6 +138,8 @@ class LLMService:
             groq_base_url=self._groq_base_url,
             gemini_api_key=self._gemini_api_key,
             gemini_base_url=self._gemini_base_url,
+            openai_api_key=self._openai_api_key,
+            openai_base_url=self._openai_base_url,
             timeout_s=self._hugging_face_timeout_s,
             max_attempts=self._hugging_face_max_attempts,
             backoff_factor=self._hugging_face_backoff_factor,
@@ -138,6 +150,9 @@ class LLMService:
             self._rebuild_client()
         return self._clients
 
+    def single_call_mode_enabled(self) -> bool:
+        return bool(self._single_call_mode)
+
     def set_store(self, store: Any) -> None:
         self._store = store
 
@@ -147,6 +162,7 @@ class LLMService:
         mock_mode: bool | None = None,
         model_name: str | None = None,
         model_response: str | None = None,
+        model_response_candidates: List[str] | None = None,
         model_emotion: str | None = None,
         model_risk: str | None = None,
         model_analysis: str | None = None,
@@ -156,11 +172,14 @@ class LLMService:
         model_analysis_by_provider: Dict[str, str] | None = None,
         enable_emotion: bool | None = None,
         enable_risk: bool | None = None,
+        low_cost_mode: bool | None = None,
+        single_call_mode: bool | None = None,
         llm_provider: str | None = None,
         llm_fallback_providers: List[str] | None = None,
         hugging_face_api_key: str | None = None,
         groq_api_key: str | None = None,
         gemini_api_key: str | None = None,
+        openai_api_key: str | None = None,
         hugging_face_timeout_s: float | None = None,
         hugging_face_max_attempts: int | None = None,
         hugging_face_backoff_factor: float | None = None,
@@ -171,6 +190,8 @@ class LLMService:
             self._model_name = model_name
         if model_response is not None:
             self._model_response = model_response
+        if model_response_candidates is not None:
+            self._model_response_candidates = model_response_candidates
         if model_emotion is not None:
             self._model_emotion = model_emotion
         if model_risk is not None:
@@ -189,6 +210,10 @@ class LLMService:
             self._enable_emotion = enable_emotion
         if enable_risk is not None:
             self._enable_risk = enable_risk
+        if low_cost_mode is not None:
+            self._low_cost_mode = low_cost_mode
+        if single_call_mode is not None:
+            self._single_call_mode = single_call_mode
         if llm_provider is not None:
             self._llm_provider = llm_provider
         if llm_fallback_providers is not None:
@@ -199,6 +224,8 @@ class LLMService:
             self._groq_api_key = groq_api_key
         if gemini_api_key is not None:
             self._gemini_api_key = gemini_api_key
+        if openai_api_key is not None:
+            self._openai_api_key = openai_api_key
         if hugging_face_timeout_s is not None:
             self._hugging_face_timeout_s = hugging_face_timeout_s
         if hugging_face_max_attempts is not None:
@@ -240,6 +267,35 @@ class LLMService:
 
         for client in clients:
             try:
+                if self._single_call_mode:
+                    history = (
+                        self._get_thread_history(user_id, thread_id, limit=50)
+                        if self._store is not None
+                        else []
+                    )
+                    reply, _insights = self._run_response_bundle(
+                        client=client,
+                        user_message=normalized_user_message,
+                        history=history,
+                    )
+                    if reply:
+                        return reply
+                    continue
+                if self._low_cost_mode:
+                    history = (
+                        self._get_thread_history(user_id, thread_id, limit=10)
+                        if self._store is not None
+                        else []
+                    )
+                    response = self._run_response(
+                        client=client,
+                        user_message=normalized_user_message,
+                        history=history,
+                        emotion=None,
+                    )
+                    if isinstance(response, str) and response.strip():
+                        return response.strip()
+                    continue
                 response = self._generate_llm_response(
                     user_id,
                     thread_id,
@@ -251,6 +307,41 @@ class LLMService:
             except Exception:
                 continue
         return self._safe_fallback_response(user_message=normalized_user_message)
+
+    def generate_response_bundle(
+        self,
+        *,
+        user_id: str,
+        thread_id: str,
+        user_message: str,
+    ) -> tuple[str, Dict[str, Any]]:
+        """Generate a response plus analysis bundle in a single model call."""
+        normalized_user_message = self._normalize_user_message_text(user_message)
+
+        if self._mock_mode:
+            return self._generate_mock_response(normalized_user_message), {}
+
+        clients = self._get_clients()
+        if not clients:
+            return self._safe_fallback_response(user_message=normalized_user_message), {}
+
+        history = (
+            self._get_thread_history(user_id, thread_id, limit=50)
+            if self._store is not None
+            else []
+        )
+        for client in clients:
+            try:
+                reply, insights = self._run_response_bundle(
+                    client=client,
+                    user_message=normalized_user_message,
+                    history=history,
+                )
+                if reply:
+                    return reply, insights
+            except Exception:
+                continue
+        return self._safe_fallback_response(user_message=normalized_user_message), {}
 
     def generate_ephemeral_response(self, user_message: str) -> str:
         """Generate a response without loading or persisting conversation history."""
@@ -265,6 +356,25 @@ class LLMService:
         history: List[Dict[str, str]] = []
         for client in clients:
             try:
+                if self._single_call_mode:
+                    reply, _insights = self._run_response_bundle(
+                        client=client,
+                        user_message=normalized_user_message,
+                        history=history,
+                    )
+                    if reply:
+                        return reply
+                    continue
+                if self._low_cost_mode:
+                    response = self._run_response(
+                        client=client,
+                        user_message=normalized_user_message,
+                        history=history,
+                        emotion=None,
+                    )
+                    if response and response.strip():
+                        return response
+                    continue
                 if self._enable_risk and self._should_run_risk(normalized_user_message, history):
                     risk = self._run_risk(client=client, user_message=normalized_user_message, history=history)
                     if risk.get("overall_risk") == "high":
@@ -324,6 +434,14 @@ class LLMService:
         if purpose == "analysis":
             return self._model_analysis_by_provider.get(provider) or self._model_analysis or self._model_response
         return self._model_response
+
+    def _model_candidates_for(self, *, client: ChatCompletionsClient, purpose: str) -> List[str]:
+        if purpose != "response":
+            return []
+        provider = (client.provider_name or "").strip().lower()
+        if provider == "gemini":
+            return [m for m in self._model_response_candidates if m]
+        return []
 
     def generate_thread_title(
         self,
@@ -782,6 +900,164 @@ class LLMService:
                 "overall_risk": "low",
             }
 
+    def _sanitize_bundle_payload(
+        self,
+        payload: Dict[str, Any],
+        *,
+        user_message: str,
+    ) -> tuple[str, Dict[str, Any]]:
+        reply = str(payload.get("reply") or "").strip()
+        if not reply:
+            reply = self._safe_fallback_response(user_message=user_message)
+
+        def _to_float(value: Any) -> float:
+            try:
+                return float(value)
+            except Exception:
+                return 0.0
+
+        risk_in = payload.get("risk") if isinstance(payload.get("risk"), dict) else {}
+        overall = risk_in.get("overall_risk")
+        if overall not in {"low", "medium", "high"}:
+            overall = "low"
+        risk = {
+            "toxicity": _to_float(risk_in.get("toxicity")),
+            "self_harm": _to_float(risk_in.get("self_harm")),
+            "harassment": _to_float(risk_in.get("harassment")),
+            "sexual": _to_float(risk_in.get("sexual")),
+            "violence": _to_float(risk_in.get("violence")),
+            "overall_risk": overall,
+        }
+
+        violence_in = payload.get("violence_intent") if isinstance(payload.get("violence_intent"), dict) else {}
+        other_directed = violence_in.get("other_directed_violence")
+        if other_directed not in {"none", "venting", "explicit"}:
+            other_directed = "none"
+        imminence = violence_in.get("imminence")
+        if imminence not in {"low", "medium", "high"}:
+            imminence = "low"
+        violence_intent = {
+            "other_directed_violence": other_directed,
+            "imminence": imminence,
+            "confidence": _to_float(violence_in.get("confidence")),
+        }
+
+        emotion_in = payload.get("emotion") if isinstance(payload.get("emotion"), dict) else {}
+        label = emotion_in.get("label")
+        if label not in {
+            "sad",
+            "anxious",
+            "angry",
+            "neutral",
+            "happy",
+            "overwhelmed",
+            "lonely",
+            "stressed",
+            "other",
+        }:
+            label = "other"
+        emotion = {
+            "label": label,
+            "confidence": _to_float(emotion_in.get("confidence")),
+        }
+
+        strengths_raw = payload.get("strengths")
+        strengths: List[str] = []
+        if isinstance(strengths_raw, list):
+            for item in strengths_raw:
+                text = str(item).strip()
+                if text:
+                    strengths.append(text)
+        strengths = strengths[:3]
+
+        patterns_in = payload.get("patterns") if isinstance(payload.get("patterns"), dict) else {}
+        patterns: Dict[str, List[str]] = {}
+        for key in ("emotions", "reactions", "values", "themes"):
+            raw = patterns_in.get(key)
+            if isinstance(raw, list):
+                cleaned: List[str] = []
+                for item in raw:
+                    text = str(item).strip()
+                    if text:
+                        cleaned.append(text)
+                if cleaned:
+                    patterns[key] = cleaned[:3]
+
+        insights = {
+            "risk": risk,
+            "violence_intent": violence_intent,
+            "emotion": emotion,
+            "strengths": strengths,
+            "patterns": patterns,
+        }
+        return reply, insights
+
+    def _run_response_bundle(
+        self,
+        *,
+        client: ChatCompletionsClient,
+        user_message: str,
+        history: List[Dict[str, str]],
+    ) -> tuple[str, Dict[str, Any]]:
+        system = (
+            "You are Calm Sphere, a supportive mental health assistant.\n"
+            "Return ONLY valid JSON with this schema:\n"
+            "{"
+            "\"reply\": string, "
+            "\"risk\": {\"toxicity\":0.0,\"self_harm\":0.0,\"harassment\":0.0,\"sexual\":0.0,\"violence\":0.0,"
+            "\"overall_risk\":\"low|medium|high\"}, "
+            "\"violence_intent\": {\"other_directed_violence\":\"none|venting|explicit\","
+            "\"imminence\":\"low|medium|high\",\"confidence\":0.0}, "
+            "\"emotion\": {\"label\":\"sad|anxious|angry|neutral|happy|overwhelmed|lonely|stressed|other\","
+            "\"confidence\":0.0}, "
+            "\"strengths\":[string], "
+            "\"patterns\":{\"emotions\":[string],\"reactions\":[string],\"values\":[string],\"themes\":[string]}"
+            "}\n"
+            "Rules:\n"
+            "- JSON only. No markdown, no extra keys, no trailing text.\n"
+            "- reply should be 1–3 short paragraphs, warm and concise.\n"
+            "- If unsure, use empty arrays and 0.0 scores.\n"
+            "- Do not include newlines outside JSON strings."
+        )
+
+        messages: List[Dict[str, str]] = [{"role": "system", "content": system}]
+        messages.extend(history[-8:])
+        messages.append({"role": "user", "content": user_message})
+
+        model_candidates = self._model_candidates_for(client=client, purpose="response")
+        if not model_candidates:
+            model_candidates = [self._model_for(client=client, purpose="response")]
+
+        last_error: Exception | None = None
+        content = ""
+        for model in model_candidates:
+            try:
+                content = client.chat_completions(
+                    model=model,
+                    messages=messages,
+                    max_tokens=420,
+                    temperature=0.6,
+                )
+                if content:
+                    break
+            except Exception as exc:
+                last_error = exc
+                continue
+        if not content:
+            if last_error:
+                raise last_error
+            return self._safe_fallback_response(user_message=user_message), {}
+
+        raw = (content or "").strip()
+        if not raw:
+            return self._safe_fallback_response(user_message=user_message), {}
+        try:
+            payload = self._extract_first_json_object(raw)
+            return self._sanitize_bundle_payload(payload, user_message=user_message)
+        except Exception:
+            # If parsing fails, treat the raw output as the reply and skip insights.
+            return raw, {}
+
     def _run_response(
         self,
         *,
@@ -791,43 +1067,44 @@ class LLMService:
         emotion: Dict[str, Any] | None,
     ) -> str:
         emotion_line = ""
-        if emotion and isinstance(emotion.get("label"), str) and float(emotion.get("confidence", 0.0) or 0.0) >= 0.4:
-            emotion_line = f"\nDetected emotion: {emotion['label']}."
-        strengths = self._run_user_strengths_analysis(
-            client=client,
-            history=history,
-            user_message=user_message,
-        )
-        recent_assistant = self._extract_recent_assistant_messages(history)
-        user_patterns = self._run_user_pattern_analysis(
-            client=client,
-            history=history,
-            user_message=user_message,
-        )
         strengths_line = ""
         anti_repeat_line = ""
         pattern_line = ""
-        if strengths:
-            strengths_line = (
-                "\nKnown user strengths from prior messages (use gently, no guilt/shaming): "
-                + " | ".join(strengths)
+        if not self._low_cost_mode:
+            if emotion and isinstance(emotion.get("label"), str) and float(emotion.get("confidence", 0.0) or 0.0) >= 0.4:
+                emotion_line = f"\nDetected emotion: {emotion['label']}."
+            strengths = self._run_user_strengths_analysis(
+                client=client,
+                history=history,
+                user_message=user_message,
             )
-        if recent_assistant:
-            anti_repeat_line = (
-                "\nRecent assistant messages to avoid repeating verbatim: "
-                + " | ".join(recent_assistant)
+            recent_assistant = self._extract_recent_assistant_messages(history)
+            user_patterns = self._run_user_pattern_analysis(
+                client=client,
+                history=history,
+                user_message=user_message,
             )
-        if user_patterns:
-            pattern_parts: List[str] = []
-            for key in ("emotions", "reactions", "values", "themes"):
-                values = user_patterns.get(key)
-                if values:
-                    pattern_parts.append(f"{key}: {', '.join(values)}")
-            if pattern_parts:
-                pattern_line = (
-                    "\nObserved user patterns across recent messages (tentative, do not overstate): "
-                    + " | ".join(pattern_parts)
+            if strengths:
+                strengths_line = (
+                    "\nKnown user strengths from prior messages (use gently, no guilt/shaming): "
+                    + " | ".join(strengths)
                 )
+            if recent_assistant:
+                anti_repeat_line = (
+                    "\nRecent assistant messages to avoid repeating verbatim: "
+                    + " | ".join(recent_assistant)
+                )
+            if user_patterns:
+                pattern_parts: List[str] = []
+                for key in ("emotions", "reactions", "values", "themes"):
+                    values = user_patterns.get(key)
+                    if values:
+                        pattern_parts.append(f"{key}: {', '.join(values)}")
+                if pattern_parts:
+                    pattern_line = (
+                        "\nObserved user patterns across recent messages (tentative, do not overstate): "
+                        + " | ".join(pattern_parts)
+                    )
 
         system = (
             "You are Calm Sphere, a supportive mental health assistant.\n"
@@ -1088,6 +1365,7 @@ llm_service = LLMService(
     mock_mode=_settings.llm_mock_mode,
     model_name=_settings.llm_model,
     model_response=_settings.llm_model_response,
+    model_response_candidates=_settings.llm_model_response_candidates,
     model_emotion=_settings.llm_model_emotion,
     model_risk=_settings.llm_model_risk,
     model_analysis=_settings.llm_model_analysis,
@@ -1097,6 +1375,8 @@ llm_service = LLMService(
     model_analysis_by_provider=_settings.llm_model_analysis_by_provider,
     enable_emotion=_settings.llm_enable_emotion,
     enable_risk=_settings.llm_enable_risk,
+    low_cost_mode=_settings.llm_low_cost_mode,
+    single_call_mode=_settings.llm_single_call_mode,
     llm_provider=_settings.llm_provider,
     llm_fallback_providers=_settings.llm_fallback_providers,
     hugging_face_api_key=_settings.hugging_face_api_key,
@@ -1105,6 +1385,8 @@ llm_service = LLMService(
     groq_base_url=_settings.groq_base_url,
     gemini_api_key=_settings.gemini_api_key,
     gemini_base_url=_settings.gemini_base_url,
+    openai_api_key=_settings.openai_api_key,
+    openai_base_url=_settings.openai_base_url,
     hugging_face_timeout_s=_settings.hugging_face_timeout_s,
     hugging_face_max_attempts=_settings.hugging_face_max_attempts,
     hugging_face_backoff_factor=_settings.hugging_face_backoff_factor,

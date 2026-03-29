@@ -28,6 +28,7 @@ from core.storage import conversation_store
 from core.llm import llm_service
 from uuid import uuid4
 from core.auth import AuthenticatedUser, get_optional_user
+from core.user_store import update_user_insights
 
 
 router = APIRouter(
@@ -102,6 +103,37 @@ def _save_assistant_reply(*, user_id: str, thread_id: str, message: str, reply: 
         )
 
 
+def _generate_reply_and_insights(*, user_id: str, thread_id: str, message: str) -> tuple[str, dict]:
+    if llm_service.single_call_mode_enabled():
+        return llm_service.generate_response_bundle(
+            user_id=user_id,
+            thread_id=thread_id,
+            user_message=message,
+        )
+    return (
+        llm_service.generate_response(
+            user_id=user_id,
+            thread_id=thread_id,
+            user_message=message,
+        ),
+        {},
+    )
+
+
+def _apply_insights(*, user_id: str, thread_id: str, insights: dict) -> None:
+    if not insights:
+        return
+    try:
+        if hasattr(conversation_store, "update_thread_insights"):
+            conversation_store.update_thread_insights(user_id, thread_id, insights)
+    except Exception:
+        pass
+    try:
+        update_user_insights(uid=user_id, insights=insights)
+    except Exception:
+        pass
+
+
 def _should_autotitle(current_title: str) -> bool:
     return not (current_title or "").strip()
 
@@ -155,12 +187,13 @@ def _maybe_autotitle_thread(*, user_id: str, thread_id: str, user_message: str, 
 
 def _build_stream_payload(*, user_id: str, thread_id: Optional[str], message: str) -> tuple[str, str]:
     if thread_id:
-        reply = llm_service.generate_response(
+        reply, insights = _generate_reply_and_insights(
             user_id=user_id,
             thread_id=thread_id,
-            user_message=message,
+            message=message,
         )
         _save_assistant_reply(user_id=user_id, thread_id=thread_id, message=message, reply=reply)
+        _apply_insights(user_id=user_id, thread_id=thread_id, insights=insights)
         _maybe_autotitle_thread(
             user_id=user_id,
             thread_id=thread_id,
@@ -170,10 +203,10 @@ def _build_stream_payload(*, user_id: str, thread_id: Optional[str], message: st
         return thread_id, reply
 
     new_thread_id = str(uuid4())
-    reply = llm_service.generate_response(
+    reply, insights = _generate_reply_and_insights(
         user_id=user_id,
         thread_id=new_thread_id,
-        user_message=message,
+        message=message,
     )
     try:
         if hasattr(conversation_store, "start_thread_with_exchange"):
@@ -188,6 +221,7 @@ def _build_stream_payload(*, user_id: str, thread_id: Optional[str], message: st
             _save_assistant_reply(user_id=user_id, thread_id=new_thread_id, message=message, reply=reply)
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to start chat thread")
+    _apply_insights(user_id=user_id, thread_id=new_thread_id, insights=insights)
     _maybe_autotitle_thread(
         user_id=user_id,
         thread_id=new_thread_id,
@@ -223,10 +257,10 @@ def _stream_temporary_reply(*, reply: str) -> Iterator[str]:
 
 def _start_chat_impl(*, user_id: str, message: str) -> StartChatResponse:
     thread_id = str(uuid4())
-    reply = llm_service.generate_response(
+    reply, insights = _generate_reply_and_insights(
         user_id=user_id,
         thread_id=thread_id,
-        user_message=message,
+        message=message,
     )
 
     try:
@@ -261,6 +295,7 @@ def _start_chat_impl(*, user_id: str, message: str) -> StartChatResponse:
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to start chat thread")
 
+    _apply_insights(user_id=user_id, thread_id=thread_id, insights=insights)
     _maybe_autotitle_thread(
         user_id=user_id,
         thread_id=thread_id,
@@ -272,10 +307,10 @@ def _start_chat_impl(*, user_id: str, message: str) -> StartChatResponse:
 
 
 def _send_message_impl(*, user_id: str, thread_id: str, message: str) -> ChatResponse:
-    reply = llm_service.generate_response(
+    reply, insights = _generate_reply_and_insights(
         user_id=user_id,
         thread_id=thread_id,
-        user_message=message
+        message=message,
     )
 
     try:
@@ -304,6 +339,7 @@ def _send_message_impl(*, user_id: str, thread_id: str, message: str) -> ChatRes
             detail=f"Thread '{thread_id}' not found for user '{user_id}'",
         )
 
+    _apply_insights(user_id=user_id, thread_id=thread_id, insights=insights)
     _maybe_autotitle_thread(
         user_id=user_id,
         thread_id=thread_id,
@@ -319,10 +355,10 @@ def _regenerate_impl(*, user_id: str, thread_id: str) -> ChatResponse:
     if not last_user_message:
         raise HTTPException(status_code=400, detail="No user message found to regenerate from")
 
-    reply = llm_service.generate_response(
+    reply, insights = _generate_reply_and_insights(
         user_id=user_id,
         thread_id=thread_id,
-        user_message=last_user_message,
+        message=last_user_message,
     )
 
     replaced = conversation_store.replace_last_assistant_message(
@@ -337,6 +373,7 @@ def _regenerate_impl(*, user_id: str, thread_id: str) -> ChatResponse:
             content=reply,
         )
 
+    _apply_insights(user_id=user_id, thread_id=thread_id, insights=insights)
     return ChatResponse(reply=reply)
 
 

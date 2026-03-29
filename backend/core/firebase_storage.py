@@ -436,6 +436,23 @@ class FirebaseConversationStore:
         # We don't round-trip to fetch server timestamps; return best-effort ISO now.
         now_iso = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
         return {"role": role, "content": content, "timestamp": now_iso}
+
+    def update_thread_insights(
+        self,
+        user_id: str,
+        thread_id: str,
+        insights: Dict[str, Any],
+    ) -> bool:
+        """Store the latest analysis bundle for a thread (overwrites previous)."""
+        thread_ref = self._thread_ref(user_id, thread_id)
+        # update() fails if the thread doesn't exist -> correct behavior
+        thread_ref.update(
+            {
+                "insights": insights,
+                "last_insights_updated": firestore.SERVER_TIMESTAMP,
+            }
+        )
+        return True
     
     def get_thread(self, user_id: str, thread_id: str) -> Optional[Dict[str, Any]]:
         """Get a thread by user and thread ID.
@@ -457,6 +474,7 @@ class FirebaseConversationStore:
         thread_data = thread_doc.to_dict() or {}
         created_at = self._to_iso(thread_data.get("created_at"), fallback_dt=getattr(thread_doc, "create_time", None))
         last_updated = self._to_iso(thread_data.get("last_updated"), fallback_dt=getattr(thread_doc, "update_time", None))
+        last_insights_updated = self._to_iso(thread_data.get("last_insights_updated"))
 
         messages: List[Dict[str, Any]] = []
         for msg_doc in self._messages_ref(user_id, thread_id).order_by("timestamp").stream():
@@ -477,6 +495,8 @@ class FirebaseConversationStore:
             "last_updated": last_updated,
             "messages": messages,
             "preview": thread_data.get("preview", ""),
+            "insights": thread_data.get("insights", {}),
+            "last_insights_updated": last_insights_updated,
         }
 
     def thread_exists(self, user_id: str, thread_id: str) -> bool:
